@@ -274,7 +274,7 @@ errors = []
 u = np.zeros((SIZE_Y, SIZE_X), dtype=complex)
 camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
 camera.Open()
-camera.ExposureTime.SetValue(1000)
+camera.ExposureTime.SetValue(300)
 camera.PixelFormat.SetValue("Mono8") 
 
 blazed_grating = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\blazed_grating.npy")
@@ -385,8 +385,8 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
     # Apply FFT and update phase
     u = join_phase_ampl(phase, PS_shape)
-    u = sfft.ifftshift(u)
-    u = sfft.ifft2(u)
+    u = sfft.fft2(u)
+    u = sfft.fftshift(u)
 
     # Normalized intensity coming from actual images from the Basler
     std_int = basler()
@@ -411,8 +411,8 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     plt.tight_layout()
     plt.pause(0.1)
     ############## Plotting ##################
-    if error_value<0.2:
-        plt.pause(20)
+    #if error_value<0.2:
+    #    plt.pause(20)
 
 
     phase=np.angle(u) # This is from -pi to pi
@@ -435,23 +435,12 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     print(errors)
     
     
-plt.figure()
-plt.plot(np.arange(n_rep), errors, "-o")
-plt.yscale('log')  # Set y-axis to log scale
-plt.ylim(min(errors) * 0.1, max(errors) * 10)  # Adjust limits for better visualization
-plt.xlabel("Iteration")
-plt.ylabel("Epsilon (Error)")
-plt.title("Epsilon Convergence (Log Scale)")
-plt.grid(True, which="both", linestyle="--", linewidth=0.5)  # Grid for better readability
-plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gs_logerrors.png")  
-plt.show()    
-    
 
 plt.figure()
 plt.plot(np.arange(n_rep), errors, "-o")
 #plt.yscale('log')
 plt.ylim(1e-2,1)
-plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gs_errors.png")  
+plt.savefig("errors.png")  
 #print(errors)
 #grab_result.Release()
 #import numpy as np
@@ -461,7 +450,7 @@ plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gs_errors.png")
 # Image.fromarray((errors)).save(errors)
 
 
-np.save(r"C:\Users\Yb\SLM\SLM\data\images\gs_final_ccd_image", std_int)
+np.save("image_on_camera_5_5.npy", std_int)
 
 
 

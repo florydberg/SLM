@@ -49,17 +49,41 @@ def epsilon(u_int, target_im_ideal, neighborhood=80):
         peak_intensities.append(peak_intensity)
     #print("\n Peak Intensities ", peak_intensities)
     # Compute error metric
-    I_max = np.max(peak_intensities)
-    I_min = np.min(peak_intensities)
-    error = (I_max - I_min) / (I_max + I_min)
-    if np.isnan(error):
-        error = 1
 
-    return error
+    mean_intensity = np.mean(peak_intensities)
+    std_intensity = np.std(peak_intensities)
 
+    # Avoid division by zero
+    relative_std = std_intensity / mean_intensity if mean_intensity > 0 else 1.0
 
+    return relative_std
 
+def intensity_std(u_int, coordinates):
+    """
+    Compute the standard deviation of tweezer intensities using peak detection.
+    
+    Args:
+    - u_int: 2D array of measured intensities.
+    - min_distance: Minimum distance between detected peaks.
+    - num_peaks: Expected number of tweezers (peaks) to detect.
 
+    Returns:
+    - relative_std: Standard deviation of intensities among tweezers normalized by mean intensity.
+    - peak_intensities: List of peak intensities at each tweezer location.
+    - coordinates: List of detected tweezer coordinates.
+    """
+    # Extract intensity values at detected peak locations
+    peak_intensities = u_int[coordinates[:, 0], coordinates[:, 1]]
+
+    # Compute normalized standard deviation
+    mean_intensity = np.mean(peak_intensities)
+    std_intensity = np.std(peak_intensities)
+    #print(peak_intensities)
+
+    # Avoid division by zero
+    relative_std = std_intensity / mean_intensity if mean_intensity > 0 else 1.0
+
+    return relative_std
 
 def join_phase_ampl(phase, ampl):
     """Combine phase and amplitude (vectorized)."""
@@ -140,6 +164,32 @@ def sort_peaks_by_y(coordinates, y_tolerance=10):
 
     return np.array(sorted_list)
 
+def weights_(w, target, w_prev, std_int):
+
+    coordinates = peak_local_max(
+        std_int,
+        min_distance=70,
+        num_peaks=25
+    )
+
+    coordinates = sort_peaks_by_y(coordinates)
+
+    w_prev_values = w_prev[target==1]
+    std_int_values = std_int[coordinates[:, 0], coordinates[:, 1]]
+
+    avg_w_prev = np.mean(w_prev_values)   
+    avg_std_int = np.mean(std_int_values) 
+
+    w[target == 1] = np.sqrt((w_prev_values / avg_w_prev) / (std_int_values / avg_std_int))
+
+    #w_updated = w.copy()  
+    #w_updated[coordinates[:, 0], coordinates[:, 1]] = new_weights
+    #print(w_updated.shape)
+
+
+    return w, coordinates
+
+
 def weights(w, target, w_prev, std_int): 
     # Detect peaks in the CCD intensity image
     coordinates = peak_local_max(
@@ -159,7 +209,7 @@ def weights(w, target, w_prev, std_int):
 
     w[target == 1] = np.sqrt(target[target == 1] / std_int[coordinates[:, 0], coordinates[:, 1]]) * w_prev[target == 1]
     
-    # # Plot the detected tweezer positions with numbering
+    # # # Plot the detected tweezer positions with numbering
     # plt.figure(figsize=(10, 6))
     # plt.imshow(target, cmap='gray')  # Display target intensity image
     # plt.scatter(coordinates[:, 1], coordinates[:, 0], c='red', marker='x', s=100, label="Detected Tweezers")
@@ -175,6 +225,28 @@ def weights(w, target, w_prev, std_int):
     # plt.legend()
     # plt.colorbar(label="Intensity")
     # plt.show()
+    # pause(20)
+    return w, coordinates
+
+def weights_a(w, target, w_prev, std_int): 
+    # Detect peaks in the CCD intensity image
+    coordinates = peak_local_max(
+        std_int,
+        min_distance=70,
+        num_peaks=25
+    )
+
+    coordinates = sort_peaks_by_y(coordinates)
+    
+    # Extract measured intensities at detected tweezer positions
+    A_measured = std_int[coordinates[:, 0], coordinates[:, 1]]
+
+    # Extract previous weights at tweezer positions
+    T_prev = target[target == 1]  # T_prev is the target values at tweezer positions
+    avg_T_prev = np.mean(T_prev)  # Average of previous target intensities
+
+    # Compute the new weights
+    w[target == 1] = (T_prev / avg_T_prev) * (A_measured / np.mean(A_measured)) * w_prev[target == 1]
 
     return w
 
@@ -246,7 +318,7 @@ errors = []
 u = np.zeros((SIZE_Y, SIZE_X), dtype=complex)
 camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
 camera.Open()
-camera.ExposureTime.SetValue(30)
+camera.ExposureTime.SetValue(200)
 camera.PixelFormat.SetValue("Mono8") 
 
 blazed_grating = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\blazed_grating.npy")
@@ -357,32 +429,10 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     std_int = basler()
     std_int = std_int/255 # if not try std_int / 255!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-    ############## Plotting ##################
-    # Find the error between ideal target image and basler image
-    error_value = epsilon(std_int, target_im_ideal)
-    errors.append(error_value)
-
-    # Update the plot dynamically
-    error_line.set_xdata(np.arange(len(errors)))
-    error_line.set_ydata(errors)
-    ax.set_xlim(0, len(errors) + 1)  # Extend x-axis as needed
-    plt.draw()
-    plt.pause(0.1)  # Small pause to update the plot
-
-    # Plots to show phase and 
-    im2.set_data(phase)
-    im3.set_data(std_int)
-    plt.tight_layout()
-    plt.pause(0.1)
-    ############## Plotting ##################
-
-
-
     phase=np.angle(u) # This is from -pi to pi
-    i = 4
+    i = 3
     if rep<i:
         u = join_phase_ampl(phase, init_ampl)
-
 
     # else:
     #     ###### Weights ########
@@ -395,12 +445,32 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     if rep>i:
 
         ###### Weights ########
-        w=weights(w,target_im,w_prev,std_int)
+        w,coordinates=weights(w,target_im,w_prev,std_int)
         w=norm(w)
         w_prev=w.copy()
         #u=join_phase_ampl(phase,w*target_im)
         u=join_phase_ampl(phase,w)
 
+        ############## Plotting ##################
+        # Find the error between ideal target image and basler image
+        #error_value = epsilon(std_int, target_im_ideal)
+        error_value = intensity_std(std_int, coordinates)
+        errors.append(error_value)
+
+        # Update the plot dynamically
+        error_line.set_xdata(np.arange(len(errors)))
+        error_line.set_ydata(errors)
+        ax.set_xlim(0, len(errors) + 1)  # Extend x-axis as needed
+        plt.draw()
+        plt.pause(0.1)  # Small pause to update the plot
+
+        # Plots to show phase and 
+        im2.set_data(phase)
+        im3.set_data(std_int)
+        plt.tight_layout()
+        plt.pause(0.1)
+        ############## Plotting ##################
+        print(errors[-1])
 
 
 
@@ -410,6 +480,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         # plt.title(f"Weights After {rep} Iterations")
         # plt.show()
         #pause(2)
+
 
 
     u = sfft.ifftshift(u)
@@ -426,7 +497,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
     #phase = phase[:,::-1] 
     #Final_ampl_phase = phase.copy()  # Final discretized phase (if needed)
-    print(errors)
+    
     
     
 plt.figure()
