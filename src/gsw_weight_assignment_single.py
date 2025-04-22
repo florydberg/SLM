@@ -600,7 +600,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         # u = sfft.fft2(u)
         # u = sfft.fftshift(u)
 
-    if rep > i& i<24:
+    if rep > i:
         w=weights(w,target_im,w_prev,std_int, coordinates, min_distance, num_peaks)
         #w, coordinates = weigths_box(w,target_im,w_prev,std_int)
         # random_weight_noise = 0.008 * np.random.randn(*w.shape)
@@ -624,42 +624,9 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         # Keep the phase values only at the detected peaks
         masked_phase[ys, xs] = phase[ys, xs]
         #asked_phase[ys, xs] = np.pi / 2
-        current_phases = masked_phase[ys, xs]
-        phase_history[rep, :] = current_phases  # each row is a repetition
-        plt.figure(figsize=(8, 6))
-        plt.imshow(masked_phase)  # Flip origin if needed
-        plt.title("Target Image After Fourier Scaling")
-        plt.xlabel("X pixels")
-        plt.ylabel("Y pixels")
-        plt.colorbar(label="Intensity")
-        plt.tight_layout()
-        plt.show()
-        pause(100)
-        amplitude_peaks = np.zeros_like(np.abs(u))
-        # Extract the peak positions
-        ys, xs = coordinates_last[:, 0], coordinates_last[:, 1]
-        amplitude_peaks[ys, xs] = np.abs(u)[ys, xs]
-        #u=join_phase_ampl(phase,w)
-        random_phases = np.zeros_like(w)
-        random_values = 2 * np.pi * np.random.rand(len(ys)) - np.pi
-        random_phases[ys, xs] = random_values
-        field_with_random_phase = w * np.exp(1j * random_phases)
-        u=join_phase_ampl(masked_phase,w) 
-  
-       # u=join_phase_ampl(phase,amplitude_peaks)
-        # random_phases = np.zeros_like(amplitude_peaks)
-        # random_values = 2 * np.pi * np.random.rand(len(ys)) - np.pi
-        # random_phases[ys, xs] = random_values
-        # # plt.figure(figsize=(8, 6))
-        # # plt.imshow(random_phases)  # Flip origin if needed
-        # # plt.title("Target Image After Fourier Scaling")
-        # # plt.xlabel("X pixels")
-        # # plt.ylabel("Y pixels")
-        # # plt.colorbar(label="Intensity")
-        # # plt.tight_layout()
 
         # plt.figure(figsize=(8, 6))
-        # plt.imshow(amplitude_peaks)  # Flip origin if needed
+        # plt.imshow(masked_phase)  # Flip origin if needed
         # plt.title("Target Image After Fourier Scaling")
         # plt.xlabel("X pixels")
         # plt.ylabel("Y pixels")
@@ -667,111 +634,8 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         # plt.tight_layout()
         # plt.show()
         # pause(100)
-        # # Step 2 — Generate random phases between [-π, π] at the same peak positions
 
-        # # Step 3 — Construct complex field: amplitude × exp(i × phase)
-        # field_with_random_phase = amplitude_peaks * np.exp(1j * random_phases)
-        # u = field_with_random_phase
-        ########### Plotting ##################
-        #Find the error between ideal target image and basler image
-        #error_value = epsilon(std_int, target_im_ideal)
-
-    # if rep ==25:
-
-    #     w=weights(w,target_im,w_prev,std_int, coordinates, min_distance, num_peaks)
-    #     #w, coordinates = weigths_box(w,target_im,w_prev,std_int)
-    #     # random_weight_noise = 0.008 * np.random.randn(*w.shape)
-    #     # w += random_weight_noise
-    #     # w = np.clip(w, 0, None)  # Ensure weights stay positive
-    #     w=norm(w)
-    #     coordinates_last = peak_local_max(
-    #     w,
-    #     min_distance=min_distance,
-    #     num_peaks=num_peaks
-    #     )
-    #     w_prev=w.copy()
-    #     #u=join_phase_ampl(phase,w*target_im)
-
-
-    #     # Start with a zero phase array
-    #     masked_phase = np.zeros_like(phase)
-
-    #     # Unpack coordinates
-    #     ys, xs = coordinates_last[:, 0], coordinates_last[:, 1]
-
-    #     # Keep the phase values only at the detected peak
-    #     random_vals = 2 * np.pi * np.random.rand(len(ys)) - np.pi
-    #     masked_phase[ys, xs] = random_vals
-    #     #asked_phase[ys, xs] = phase[ys, xs]
-    #     #asked_phase[ys, xs] = np.pi / 2
-    #     current_phases = masked_phase[ys, xs]
-    #     phase_history[rep, :] = current_phases  # each row is a repetition
-    #     plt.figure(figsize=(8, 6))
-    #     plt.imshow(masked_phase)  # Flip origin if needed
-    #     plt.title("Target Image After Fourier Scaling")
-    #     plt.xlabel("X pixels")
-    #     plt.ylabel("Y pixels")
-    #     plt.colorbar(label="Intensity")
-    #     plt.tight_layout()
-    #     plt.show()
-    #     pause(100)
-    #     amplitude_peaks = np.zeros_like(np.abs(u))
-    #     # Extract the peak positions
-    #     ys, xs = coordinates_last[:, 0], coordinates_last[:, 1]
-    #     amplitude_peaks[ys, xs] = np.abs(u)[ys, xs]
-    #     #u=join_phase_ampl(phase,w)
-    #     random_phases = np.zeros_like(w)
-    #     random_values = 2 * np.pi * np.random.rand(len(ys)) - np.pi
-    #     random_phases[ys, xs] = random_values
-    #     field_with_random_phase = w * np.exp(1j * random_phases)
-    #     u=join_phase_ampl(masked_phase,w) 
-    # if rep > 25:
-    #     w=weights(w,target_im,w_prev,std_int, coordinates, min_distance, num_peaks)
-    #     #w, coordinates = weigths_box(w,target_im,w_prev,std_int)
-    #     # random_weight_noise = 0.008 * np.random.randn(*w.shape)
-    #     # w += random_weight_noise
-    #     # w = np.clip(w, 0, None)  # Ensure weights stay positive
-    #     w=norm(w)
-    #     coordinates_last = peak_local_max(
-    #     w,
-    #     min_distance=min_distance,
-    #     num_peaks=num_peaks
-    #     )
-    #     w_prev=w.copy()
-    #     #u=join_phase_ampl(phase,w*target_im)
-
-
-    #     # Start with a zero phase array
-    #     masked_phase = np.zeros_like(phase)
-
-    #     # Unpack coordinates
-    #     ys, xs = coordinates_last[:, 0], coordinates_last[:, 1]
-
-    #     # Keep the phase values only at the detected peaks
-    #     masked_phase[ys, xs] = phase[ys, xs]
-    #     #asked_phase[ys, xs] = np.pi / 2
-    #     current_phases = masked_phase[ys, xs]
-    #     phase_history[rep, :] = current_phases  # each row is a repetition
-    #     # plt.figure(figsize=(8, 6))
-    #     # plt.imshow(masked_phase)  # Flip origin if needed
-    #     # plt.title("Target Image After Fourier Scaling")
-    #     # plt.xlabel("X pixels")
-    #     # plt.ylabel("Y pixels")
-    #     # plt.colorbar(label="Intensity")
-    #     # plt.tight_layout()
-    #     # plt.show()
-    #     # pause(100)
-    #     amplitude_peaks = np.zeros_like(np.abs(u))
-    #     # Extract the peak positions
-    #     ys, xs = coordinates_last[:, 0], coordinates_last[:, 1]
-    #     amplitude_peaks[ys, xs] = np.abs(u)[ys, xs]
-    #     #u=join_phase_ampl(phase,w)
-    #     random_phases = np.zeros_like(w)
-    #     random_values = 2 * np.pi * np.random.rand(len(ys)) - np.pi
-    #     random_phases[ys, xs] = random_values
-    #     field_with_random_phase = w * np.exp(1j * random_phases)
-    #     u=join_phase_ampl(masked_phase,w) 
-  
+        u=join_phase_ampl(masked_phase,w) 
 
     error_value = intensity_std(std_int, coordinates)
     errors.append(error_value)
@@ -844,22 +708,6 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
 
 
-
-
-unwrapped_history = np.unwrap(phase_history, axis=0)  # unwrap along time/repetition axis
-
-plt.figure(figsize=(12, 6))
-for idx in range(len(xs)):
-    plt.plot(unwrapped_history[:, idx], label=f'Pixel {idx}')
-plt.xlabel('Repetition')
-plt.ylabel('Unwrapped Phase Value (radians)')
-plt.title('Unwrapped Phase Evolution at Each Tweezer Pixel')
-plt.legend(loc='upper right', fontsize='small', ncol=3)
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-plt.pause(100)
 # plt.figure()
 # plt.plot(np.arange(n_rep), errors, "-o")
 # plt.yscale('log')  # Set y-axis to log scale
