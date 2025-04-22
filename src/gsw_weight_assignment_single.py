@@ -358,7 +358,8 @@ def generate_circle_positions(num_tweezers, img_shape, radius=300):
 # --- Main Code ---
 
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\random_spaced_tweezers.npy")
-target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\2x2tweezers.npy")
+target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\tweezer_step_9.npy")
+target_im_ideal = norm(target_im_ideal)
 
 # Number of iterations
 n_rep = 30
@@ -370,9 +371,7 @@ n_rep = 30
 
 #target_im = neww() 
 target_im = tweez_fourier_scaled(target_im_ideal)
-
 target_im=norm(target_im)   # Image in intensity units [0,1]
-target_im_ideal = norm(target_im_ideal)
 SIZE_Y,SIZE_X=target_im.shape
 #target_im = tweez_fourier_scaled(target_im_ideal)
 
@@ -495,13 +494,13 @@ errors = []  # Store error values
 
 # Convert to SLM range [0, 255]
 #phase_slm = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)  
-init_ampl=np.sqrt(tweez_fourier_scaled(target_im_ideal)) # Amplitude of the tweezer spots i.e. A = sqrt(intensity)
+init_ampl=np.sqrt(target_im) # Amplitude of the tweezer spots i.e. A = sqrt(intensity)
 #w_prev = target_im # as done by mezzanti
 
 # Initial random phase in the range [-pi, pi]
 phase = 2 * np.pi * np.random.rand(SIZE_Y, SIZE_X) - np.pi
 #phase = np.zeros((SIZE_Y, SIZE_X))
-min_distance = 4
+min_distance = 2
 num_peaks = 25
 
 
