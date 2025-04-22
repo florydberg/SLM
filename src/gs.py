@@ -222,6 +222,51 @@ def basler():
     #cv2.destroyAllWindows()
 
     return std_int
+def tweez_fourier_scaled(target_im_ideal):
+
+    wavelength = 813e-9  
+    focal_length = 300e-3 
+    pixel_pitch_slm = 8e-6  
+    pixel_pitch_ccd = 3.45e-6  
+    SIZE_Y,SIZE_X=target_im_ideal.shape
+
+    delta_x = (wavelength * focal_length) / (SIZE_X * pixel_pitch_slm)  
+    delta_y = (wavelength * focal_length) / (SIZE_Y * pixel_pitch_slm)  
+
+    scale_x = delta_x / pixel_pitch_ccd
+    scale_y = delta_y / pixel_pitch_ccd
+
+    # print(f"Fourier Scaling Δx = {delta_x:.3e} m, Δy = {delta_y:.3e} m")
+    # print(f"Scaling in CCD pixels: scale_x = {scale_x:.2f}, scale_y = {scale_y:.2f}")
+
+    # # === Map Tweezer Positions from CCD to SLM ===
+    tweezer_positions_ccd = np.argwhere(target_im_ideal == 1)  
+    #tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  # or >= 0.99
+    # Convert CCD pixels to real-world distances
+
+    tweezer_positions_ccd_x = (tweezer_positions_ccd[:, 1] - SIZE_X / 2) * pixel_pitch_ccd
+    tweezer_positions_ccd_y = (tweezer_positions_ccd[:, 0] - SIZE_Y / 2) * pixel_pitch_ccd
+
+    # Apply Fourier Scaling to map to SLM space
+    tweezer_positions_slm_x = tweezer_positions_ccd_x / delta_x
+    tweezer_positions_slm_y = tweezer_positions_ccd_y / delta_y
+
+    # Shift back to CCD coordinate space
+    tweezer_positions_slm_x = np.round(tweezer_positions_slm_x + SIZE_X / 2).astype(int)
+    tweezer_positions_slm_y = np.round(tweezer_positions_slm_y + SIZE_Y / 2).astype(int)
+
+    target_im = np.zeros((SIZE_Y, SIZE_X), dtype=np.uint8)
+    target_im[tweezer_positions_slm_y, tweezer_positions_slm_x] = 255  
+    # # Plot Phase Pattern
+    # plt.figure(figsize=(8, 6))
+    # plt.imshow(target_im)
+    # plt.colorbar(label="8-bit values")
+    # plt.title("PScaled Tweezer Positions")
+    # plt.xlabel("SLM X")
+    # plt.ylabel("SLM Y")
+    # plt.show()
+    return target_im
+
 
 # --- Main Code ---
 
@@ -238,8 +283,12 @@ n_rep = 150
 #target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\singletweezer.npy")
 #target_im_ideal = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\singletweezer.npy")
 
-target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
-target_im_ideal = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\5x5_grid_1920x1200_100pixels.npy")
+#target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
+#target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
+#target_im_ideal = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\5x5_grid_1920x1200_100pixels.npy")
+target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\2x2tweezers.npy")
+target_im = tweez_fourier_scaled(target_im_ideal)
+
 target_im=norm(target_im)   # Image in intensity units [0,1]
 target_im_ideal = norm(target_im_ideal)
 SIZE_Y,SIZE_X=target_im.shape
@@ -361,7 +410,7 @@ phase = np.random.rand(SIZE_Y, SIZE_X) * 2 * np.pi - np.pi
 # Convert to SLM range [0, 255]
 #phase_slm = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)  
 
-init_ampl=np.sqrt(target_im) # Amplitude of the tweezer spots i.e. A = sqrt(intensity)
+init_ampl=np.sqrt(tweez_fourier_scaled(target_im_ideal)) # Amplitude of the tweezer spots i.e. A = sqrt(intensity)
 
 
 
@@ -376,12 +425,12 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     #    pattern_to_slm = phase_2pi
 
     slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image);
-    sleep(0.2) #wait 100 ms for lcs to settle
+    pause(0.2) #wait 100 ms for lcs to settle
     
     # Convert back to phase in [-π, π] range for the FFT
 
     #################### This part goes back to phases being from -pi to pi #################################
-    phase = (phase_2pi / 255) * 2 * np.pi - np.pi  
+    #phase = (phase_2pi / 255) * 2 * np.pi - np.pi  
 
     # Apply FFT and update phase
     u = join_phase_ampl(phase, PS_shape)
@@ -395,8 +444,8 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
     ############## Plotting ##################
     # Find the error between ideal target image and basler image
-    error_value = epsilon(std_int, target_im_ideal)
-    errors.append(error_value)
+    #error_value = epsilon(std_int, target_im_ideal)
+    #errors.append(error_value)
 
     # Update the plot dynamically
     error_line.set_xdata(np.arange(len(errors)))
@@ -432,7 +481,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
     #phase = phase[:,::-1] 
     #Final_ampl_phase = phase.copy()  # Final discretized phase (if needed)
-    print(errors)
+    #print(errors)
     
     
 
@@ -440,10 +489,20 @@ plt.figure()
 plt.plot(np.arange(n_rep), errors, "-o")
 #plt.yscale('log')
 plt.ylim(1e-2,1)
-plt.savefig("errors.png")  
+plt.savefig("gs_errors.png")  
 #print(errors)
 #grab_result.Release()
 #import numpy as np
+plt.figure()
+plt.plot(np.arange(n_rep), errors, "-o")
+plt.yscale('log')  # Set y-axis to log scale
+plt.ylim(min(errors) * 0.1, max(errors) * 10)  # Adjust limits for better visualization
+plt.xlabel("Iteration")
+plt.ylabel("Epsilon (Error)")
+plt.title("Epsilon Convergence (Log Scale)")
+plt.grid(True, which="both", linestyle="--", linewidth=0.5)  # Grid for better readability
+plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gs_logerrors.png")  
+plt.show()    
 
 # np.save("errors.npy", errors)
 # output_path_smooth = "errors.bmp"

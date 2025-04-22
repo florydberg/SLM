@@ -20,7 +20,7 @@ from skimage.feature import peak_local_max
 from scipy.ndimage import zoom
 
 
-def epsilon_old(u_int, target_im_ideal, neighborhood=80):
+def epsilon(u_int, target_im_ideal, neighborhood=80):
     """
     Compute the relative intensity error for a 5x5 tweezer array.
     
@@ -57,8 +57,6 @@ def epsilon_old(u_int, target_im_ideal, neighborhood=80):
     relative_std = std_intensity / mean_intensity if mean_intensity > 0 else 1.0
 
     return relative_std
-
-
 
 def intensity_std(u_int, coordinates):
     """
@@ -167,6 +165,31 @@ def sort_peaks_by_y(coordinates, y_tolerance=10):
 
 
 
+def weights_k(w, target, w_prev, std_int):
+
+    coordinates = peak_local_max(
+        std_int,
+        min_distance=70,
+        num_peaks=25
+    )
+
+    coordinates = sort_peaks_by_y(coordinates)
+
+    w_prev_values = w_prev[target==1]
+    std_int_values = std_int[coordinates[:, 0], coordinates[:, 1]]
+    
+    avg_w_prev = np.mean(w_prev_values)   
+    avg_std_int = np.mean(std_int_values) 
+
+    w[target == 1] = np.sqrt((w_prev_values / avg_w_prev) / (std_int_values / avg_std_int))
+
+    #w_updated = w.copy()  
+    #w_updated[coordinates[:, 0], coordinates[:, 1]] = new_weights
+    #print(w_updated.shape)
+
+
+    return w, coordinates
+
 def sort_peaks_by_y_descending_x(coordinates, y_tolerance=10):
     """
     Sorts detected peaks in row-major order where:
@@ -199,8 +222,13 @@ def sort_peaks_by_y_descending_x(coordinates, y_tolerance=10):
 
     return np.array(sorted_list)
 
-def weights(w, target, w_prev, std_int,coordinates): 
+def weights(w, target, w_prev, std_int): 
     # Detect peaks in the CCD intensity image
+    coordinates = peak_local_max(
+        std_int,
+        min_distance=70,
+        num_peaks=25
+    )
 
 
 
@@ -212,26 +240,57 @@ def weights(w, target, w_prev, std_int,coordinates):
     #    print(f"  Peak {i+1}: (Y={y}, X={x})")
 
     w[target == 1] = np.sqrt(target[target == 1] / std_int[coordinates[:, 0], coordinates[:, 1]]) * w_prev[target == 1]
+    print(std_int[coordinates[:, 0], coordinates[:, 1]])
+    # # # Plot the detected tweezer positions with numbering
+    # plt.figure(figsize=(10, 6))
+    # plt.imshow(target, cmap='gray')  # Display target intensity image
+    # plt.scatter(coordinates[:, 1], coordinates[:, 0], c='red', marker='x', s=100, label="Detected Tweezers")
+
+    # # Add numbering to each detected tweezer
+    # for i, (x, y) in enumerate(coordinates):
+    #     plt.text(y, x, str(i+1), color="yellow", fontsize=12, ha='center', va='center', fontweight='bold')
+
+    # # Labels & formatting
+    # plt.title("Detected Tweezer Positions with Numbering")
+    # plt.xlabel("X pixels")
+    # plt.ylabel("Y pixels")
+    # plt.legend()
+    # plt.colorbar(label="Intensity")
+    # plt.show()
+    # pause(20)
+    return w, coordinates
+
+
+def weigths_box(w, target, w_prev, std_int): 
+    # Detect peaks in the CCD intensity image
+    coordinates = peak_local_max(
+        std_int,
+        min_distance=70,
+        num_peaks=25
+    )
+    #coordinates = coordinates[np.lexsort((coordinates[:,0], coordinates[:,1]))] # 0 = y coordinates and 1 is x coordinates
+    coordinates = sort_peaks_by_y(coordinates)
+    # mask = np.zeros(std_int.shape, dtype=bool)
+    # mask[coordinates[:, 0], coordinates[:, 1]] = True
+    # mask = binary_dilation(mask, structure=np.ones((10, 10)))
+    mean_values = []
+    for y, x in coordinates:
+        mask = np.zeros(std_int.shape, dtype=bool)
+        mask[y,x] = True
+        mask = binary_dilation(mask, structure=np.ones((10, 10)))
+        mean_value = np.mean(std_int[mask])
+        mean_values.append(mean_value)
+    
+    w[target == 1] = np.sqrt(target[target == 1] / mean_values) * w_prev[target == 1]
     #print(std_int[coordinates[:, 0], coordinates[:, 1]])
-    # # Plot the detected tweezer positions with numbering
-    plt.figure(figsize=(10, 6))
-    plt.imshow(target, cmap='gray')  # Display target intensity image
-    plt.scatter(coordinates[:, 1], coordinates[:, 0], c='red', marker='x', s=100, label="Detected Tweezers")
+    # fig, ax = plt.subplots()
+    # ax.imshow(std_int, cmap='gray')
 
-    # Add numbering to each detected tweezer
-    for i, (x, y) in enumerate(coordinates):
-        plt.text(y, x, str(i+1), color="yellow", fontsize=12, ha='center', va='center', fontweight='bold')
-
-    # Labels & formatting
-    plt.title("Detected Tweezer Positions with Numbering")
-    plt.xlabel("X pixels")
-    plt.ylabel("Y pixels")
-    plt.legend()
-    plt.colorbar(label="Intensity")
-    plt.show()
-    pause(20)
-    return w
-
+    # ax.contour(mask, levels=[0.5], colors='red', linewidths=2)
+    # plt.show()
+    # plt.pause(15)
+    print(std_int[coordinates[:, 0], coordinates[:, 1]])
+    return w, coordinates
 
 def basler():
         #print("Camera model:", camera.GetDeviceInfo().GetModelName())
@@ -246,14 +305,12 @@ def basler():
 
     return std_int
 
-
 def tweez_fourier_scaled(target_im_ideal):
 
     wavelength = 813e-9  
     focal_length = 300e-3 
     pixel_pitch_slm = 8e-6  
     pixel_pitch_ccd = 3.45e-6  
-    SIZE_Y,SIZE_X=target_im_ideal.shape
 
     delta_x = (wavelength * focal_length) / (SIZE_X * pixel_pitch_slm)  
     delta_y = (wavelength * focal_length) / (SIZE_Y * pixel_pitch_slm)  
@@ -266,7 +323,6 @@ def tweez_fourier_scaled(target_im_ideal):
 
     # # === Map Tweezer Positions from CCD to SLM ===
     tweezer_positions_ccd = np.argwhere(target_im_ideal == 1)  
-    #tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  # or >= 0.99
     # Convert CCD pixels to real-world distances
 
     tweezer_positions_ccd_x = (tweezer_positions_ccd[:, 1] - SIZE_X / 2) * pixel_pitch_ccd
@@ -292,17 +348,14 @@ def tweez_fourier_scaled(target_im_ideal):
     # plt.show()
     return target_im
 
-
 # --- Main Code ---
 
 # Number of iterations
-n_rep = 50
+n_rep = 100
 #target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
-#target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
-target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\2x2tweezers.npy")
-
-target_im = tweez_fourier_scaled(target_im_ideal)
+target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
+target_im_ideal = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\5x5_grid_1920x1200_100pixels.npy")
 target_im=norm(target_im)   # Image in intensity units [0,1]
 target_im_ideal = norm(target_im_ideal)
 SIZE_Y,SIZE_X=target_im.shape
@@ -331,13 +384,7 @@ w = target_im.copy()
 #PS_shape = Beam_shape(SIZE_X, SIZE_Y, sigma=300, mu=0)
 PS_shape = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\incident_amplitude.npy")
 PS_shape = norm(PS_shape)
-# plt.figure(figsize=(8, 6))
-# plt.imshow(PS_shape)
-# plt.colorbar(label="8-bit values")
-# plt.title("PScaled Tweezer Positions")
-# plt.xlabel("SLM X")
-# plt.ylabel("SLM Y")
-# plt.show()
+
 w_prev = target_im.copy()  # initial previous weights
 #w_prev = np.zeros_like(target_im)
 errors = []
@@ -345,12 +392,11 @@ errors = []
 u = np.zeros((SIZE_Y, SIZE_X), dtype=complex)
 camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
 camera.Open()
-camera.ExposureTime.SetValue(300)
+camera.ExposureTime.SetValue(400)
 camera.PixelFormat.SetValue("Mono8") 
 
 blazed_grating = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\blazed_grating.npy")
-#phase_correction = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\phase_map_img_fit_mod.npy")
-phase_correction = np.load(r"C:\Users\Yb\Documents\slm_calibration\psi_images_avg_10_04_04_25\phase_map_0_2pi.npy")
+phase_correction = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\phase_map_img_fit_mod.npy")
 phase_pattern_first = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\phase_map_5x5_grid_1920x1200_100pixels.npy")
 
 first_img_to_SLM  = blazed_grating + phase_correction + phase_pattern_first
@@ -427,7 +473,7 @@ init_ampl=np.sqrt(tweez_fourier_scaled(target_im_ideal)) # Amplitude of the twee
 #w_prev = target_im # as done by mezzanti
 
 # Initial random phase in the range [-pi, pi]
-phase = 2 * np.pi * np.random.rand(SIZE_Y, SIZE_X) - np.pi
+phase_slm = 2 * np.pi * np.random.rand(SIZE_Y, SIZE_X) - np.pi
 #phase = np.zeros((SIZE_Y, SIZE_X))
 
 for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
@@ -436,7 +482,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     # phase_2pi = np.round((phase) * 255 / (2 * np.pi)).astype(np.uint8) # convert to 8-bit
 
     #if rep==0:
-    pattern_to_slm = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8) + blazed_grating + phase_correction # this part is the phase pattern to send to the slm
+    pattern_to_slm = np.round((phase_slm + np.pi) * 255 / (2 * np.pi)).astype(np.uint8) + blazed_grating + phase_correction # this part is the phase pattern to send to the slm
     #else:
     #    pattern_to_slm = phase_2pi
 
@@ -449,28 +495,28 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     #phase= (phase_slm / 255) * 2 * np.pi - np.pi # i see a problem with thiiiisssss dsjölkdsajlksjklvndslnvkdsanlkndsnfsd
 
     # Apply FFT and update phase
-    u = join_phase_ampl(phase, PS_shape)
+    u = join_phase_ampl(phase_slm, PS_shape)
     u = sfft.fft2(u)
     u = sfft.fftshift(u)
 
     # Normalized intensity coming from actual images from the Basler
     std_int = basler()
-    #print("STD_INT SHAPE",std_int.shape)
     std_int = std_int/255 # if not try std_int / 255!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    coordinates = peak_local_max(
-        std_int,
-        min_distance=70,
-        num_peaks=2)
+
     # Plots to show phase and 
-    im2.set_data(phase)
+    im2.set_data(phase_slm)
     im3.set_data(std_int)
     plt.tight_layout()
     plt.pause(0.1)
 
-    phase=np.angle(u) # This is from -pi to pi
-    i = 20
+    if rep<21:
+        phase_tweezers=np.angle(u) # This is from -pi to pi
+    
+
+    i = 3
     if rep<i:
-        u = join_phase_ampl(phase, init_ampl)
+        u = join_phase_ampl(phase_tweezers, init_ampl)
+
     # else:
     #     ###### Weights ########
     #     w=weights(target_im,w_prev,std_int)
@@ -480,30 +526,31 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     #     ###### Weights ########
 
     if rep>i:
+        print("gsw")
         ###### Weights ########
-        w=weights(w,target_im,w_prev,std_int, coordinates)
+        w,coordinates=weights(w,target_im,w_prev,std_int)
         #w, coordinates = weigths_box(w,target_im,w_prev,std_int)
         w=norm(w)
         w_prev=w.copy()
         #u=join_phase_ampl(phase,w*target_im)
-        u=join_phase_ampl(phase,w)
+        u=join_phase_ampl(phase_tweezers,w)
 
         ############ Plotting ##################
         #Find the error between ideal target image and basler image
-        #error_value = epsilon(std_int, coordinates)
-    error_value = intensity_std(std_int, coordinates)
-    errors.append(error_value)
+        error_value = epsilon(std_int, target_im_ideal)
+        error_value = intensity_std(std_int, coordinates)
+        errors.append(error_value)
 
         # Update the plot dynamically
-    error_line.set_xdata(np.arange(len(errors)))
-    error_line.set_ydata(errors)
-    ax.set_xlim(0, len(errors) + 1)  # Extend x-axis as needed
-    plt.draw()
-    plt.pause(0.1)  # Small pause to update the plot
+        error_line.set_xdata(np.arange(len(errors)))
+        error_line.set_ydata(errors)
+        ax.set_xlim(0, len(errors) + 1)  # Extend x-axis as needed
+        plt.draw()
+        plt.pause(0.1)  # Small pause to update the plot
 
     
     ############# Plotting ##################
-    print(errors[-1])
+        print(errors[-1])
 
 
 
@@ -522,7 +569,8 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
    
 
     # The phase that we need to imprint by the SLM is:
-    phase = np.angle(u) # This is still -pi to pi!!
+    phase_slm = np.angle(u) # This is still -pi to pi!!
+    
 
     #################### This part goes back to phases being from -pi to pi #################################
 
@@ -533,22 +581,22 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     
     
     
-# plt.figure()
-# plt.plot(np.arange(n_rep), errors, "-o")
-# plt.yscale('log')  # Set y-axis to log scale
-# plt.ylim(min(errors) * 0.1, max(errors) * 10)  # Adjust limits for better visualization
-# plt.xlabel("Iteration")
-# plt.ylabel("Epsilon (Error)")
-# plt.title("Epsilon Convergence (Log Scale)")
-# plt.grid(True, which="both", linestyle="--", linewidth=0.5)  # Grid for better readability
-# plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gsw_logerrors.png")  
-# plt.show()    
+plt.figure()
+plt.plot(np.arange(n_rep), errors, "-o")
+plt.yscale('log')  # Set y-axis to log scale
+plt.ylim(min(errors) * 0.1, max(errors) * 10)  # Adjust limits for better visualization
+plt.xlabel("Iteration")
+plt.ylabel("Epsilon (Error)")
+plt.title("Epsilon Convergence (Log Scale)")
+plt.grid(True, which="both", linestyle="--", linewidth=0.5)  # Grid for better readability
+plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gsw_logerrors.png")  
+plt.show()    
 
-# plt.figure()
-# plt.plot(np.arange(n_rep), errors, "-o")
-# #plt.yscale('log')
-# plt.ylim(1e-2,1)
-# plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gsw_errors.png")  
+plt.figure()
+plt.plot(np.arange(n_rep), errors, "-o")
+#plt.yscale('log')
+plt.ylim(1e-2,1)
+plt.savefig(r"C:\Users\Yb\SLM\SLM\data\images\gsw_errors.png")  
 #print(errors)
 #grab_result.Release()
 #import numpy as np
@@ -558,9 +606,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 # Image.fromarray((errors)).save(errors)
 
 
-#np.save(r"C:\Users\Yb\SLM\SLM\data\images\final_ccd_image", std_int)
-#np.save(r"C:\Users\Yb\SLM\SLM\data\images\final_phase_pattern", np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8))
-#np.save(r"C:\Users\Yb\SLM\SLM\data\images\final_phase_pattern_no8bit", phase)
+np.save(r"C:\Users\Yb\SLM\SLM\data\images\final_ccd_image", std_int)
 
 
 
