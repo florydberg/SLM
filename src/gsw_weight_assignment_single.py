@@ -136,13 +136,13 @@ def weights(w, target, w_prev, std_int, coordinates_ccd_first, min_distance, num
     # Step 2: Fill in only the detected peaks with their intensity
     for y, x in coordinates_ccd_first:
         ccd_mask[y, x] = std_int[y, x]
-
     std_int = tweez_fourier_scaled_std(ccd_mask)
+
     coordinates_ccd = peak_local_max(
         std_int,
         min_distance=min_distance,
         num_peaks=num_peaks    )
-
+    
     # plt.figure(figsize=(8, 6))
     # plt.imshow(std_int, cmap='gray')
     # plt.title("Fourier Scaled Intensity (std_int)")
@@ -287,79 +287,49 @@ def tweez_fourier_scaled_std(target_im_ideal):
     return target_im
 
 
-# def tweez_fourier_scaled(target_im_ideal):
-
-#     wavelength = 813e-9  
-#     focal_length = 300e-3 
-#     pixel_pitch_slm = 8e-6  
-#     pixel_pitch_ccd = 3.45e-6  
-#     SIZE_Y,SIZE_X=target_im_ideal.shape
-
-#     delta_x = (wavelength * focal_length) / (SIZE_X * pixel_pitch_slm)  
-#     delta_y = (wavelength * focal_length) / (SIZE_Y * pixel_pitch_slm)  
-
-#     scale_x = delta_x / pixel_pitch_ccd
-#     scale_y = delta_y / pixel_pitch_ccd
-
-#     # print(f"Fourier Scaling Δx = {delta_x:.3e} m, Δy = {delta_y:.3e} m")
-#     # print(f"Scaling in CCD pixels: scale_x = {scale_x:.2f}, scale_y = {scale_y:.2f}")
-
-#     # # === Map Tweezer Positions from CCD to SLM ===
-#     tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  
-#     #tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  # or >= 0.99
-#     # Convert CCD pixels to real-world distances
-
-#     tweezer_positions_ccd_x = (tweezer_positions_ccd[:, 1] - SIZE_X / 2) * pixel_pitch_ccd
-#     tweezer_positions_ccd_y = (tweezer_positions_ccd[:, 0] - SIZE_Y / 2) * pixel_pitch_ccd
-
-#     # Apply Fourier Scaling to map to SLM space
-#     tweezer_positions_slm_x = tweezer_positions_ccd_x / delta_x
-#     tweezer_positions_slm_y = tweezer_positions_ccd_y / delta_y
-
-#     # Shift back to CCD coordinate space
-#     tweezer_positions_slm_x = np.round(tweezer_positions_slm_x + SIZE_X / 2).astype(int)
-#     tweezer_positions_slm_y = np.round(tweezer_positions_slm_y + SIZE_Y / 2).astype(int)
-
-#     target_im = np.zeros((SIZE_Y, SIZE_X), dtype=np.uint8)
-#     target_im[tweezer_positions_slm_y, tweezer_positions_slm_x] = 255  
-#     # # Plot Phase Pattern
-#     # plt.figure(figsize=(8, 6))
-#     # plt.imshow(target_im)
-#     # plt.colorbar(label="8-bit values")
-#     # plt.title("PScaled Tweezer Positions")
-#     # plt.xlabel("SLM X")
-#     # plt.ylabel("SLM Y")
-#     # plt.show()
-#     return target_im
-
-
 def tweez_fourier_scaled(target_im_ideal):
+
     wavelength = 813e-9  
     focal_length = 300e-3 
     pixel_pitch_slm = 8e-6  
     pixel_pitch_ccd = 3.45e-6  
-    SIZE_Y, SIZE_X = target_im_ideal.shape
+    SIZE_Y,SIZE_X=target_im_ideal.shape
 
     delta_x = (wavelength * focal_length) / (SIZE_X * pixel_pitch_slm)  
     delta_y = (wavelength * focal_length) / (SIZE_Y * pixel_pitch_slm)  
 
-    tweezer_positions_ccd = np.argwhere(target_im_ideal > 0)  # Use all non-zero amplitudes
+    scale_x = delta_x / pixel_pitch_ccd
+    scale_y = delta_y / pixel_pitch_ccd
+
+    # print(f"Fourier Scaling Δx = {delta_x:.3e} m, Δy = {delta_y:.3e} m")
+    # print(f"Scaling in CCD pixels: scale_x = {scale_x:.2f}, scale_y = {scale_y:.2f}")
+
+    # # === Map Tweezer Positions from CCD to SLM ===
+    tweezer_positions_ccd = np.argwhere(target_im_ideal == 1)  
+    #tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  # or >= 0.99
+    # Convert CCD pixels to real-world distances
 
     tweezer_positions_ccd_x = (tweezer_positions_ccd[:, 1] - SIZE_X / 2) * pixel_pitch_ccd
     tweezer_positions_ccd_y = (tweezer_positions_ccd[:, 0] - SIZE_Y / 2) * pixel_pitch_ccd
 
+    # Apply Fourier Scaling to map to SLM space
     tweezer_positions_slm_x = tweezer_positions_ccd_x / delta_x
     tweezer_positions_slm_y = tweezer_positions_ccd_y / delta_y
 
+    # Shift back to CCD coordinate space
     tweezer_positions_slm_x = np.round(tweezer_positions_slm_x + SIZE_X / 2).astype(int)
     tweezer_positions_slm_y = np.round(tweezer_positions_slm_y + SIZE_Y / 2).astype(int)
 
-    target_im = np.zeros_like(target_im_ideal)
-
-    for (y_ccd, x_ccd), x_slm, y_slm in zip(tweezer_positions_ccd, tweezer_positions_slm_x, tweezer_positions_slm_y):
-        if 0 <= y_slm < SIZE_Y and 0 <= x_slm < SIZE_X:
-            target_im[y_slm, x_slm] = target_im_ideal[y_ccd, x_ccd]
-
+    target_im = np.zeros((SIZE_Y, SIZE_X), dtype=np.uint8)
+    target_im[tweezer_positions_slm_y, tweezer_positions_slm_x] = 255  
+    # # Plot Phase Pattern
+    # plt.figure(figsize=(8, 6))
+    # plt.imshow(target_im)
+    # plt.colorbar(label="8-bit values")
+    # plt.title("PScaled Tweezer Positions")
+    # plt.xlabel("SLM X")
+    # plt.ylabel("SLM Y")
+    # plt.show()
     return target_im
 
 
@@ -388,17 +358,9 @@ def generate_circle_positions(num_tweezers, img_shape, radius=300):
 # --- Main Code ---
 
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\random_spaced_tweezers.npy")
-target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\notebooks\Tweezer_step_images\tweezer_step_0004_updated.npy")
+target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\notebooks\Tweezer_step_images\tweezer_step_0000.npy")
 target_im_ideal = norm(target_im_ideal)
-plt.figure(figsize=(8, 6))
-plt.imshow(target_im_ideal, cmap='gray', origin='upper')  # Flip origin if needed
-plt.title("Target Image After Fourier Scaling")
-plt.xlabel("X pixels")
-plt.ylabel("Y pixels")
-plt.colorbar(label="Intensity")
-plt.tight_layout()
-plt.show()
-#pause(10)
+
 # Number of iterations
 n_rep = 16
 #target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
@@ -410,7 +372,6 @@ n_rep = 16
 #target_im = neww() 
 target_im = tweez_fourier_scaled(target_im_ideal)
 target_im=norm(target_im)   # Image in intensity units [0,1]
-target_im = np.round((target_im) * 255).astype(np.uint8)
 SIZE_Y,SIZE_X=target_im.shape
 #target_im = tweez_fourier_scaled(target_im_ideal)
 
@@ -423,7 +384,7 @@ SIZE_Y,SIZE_X=target_im.shape
 # plt.colorbar(label="Intensity")
 # plt.tight_layout()
 # plt.show()
-# pause(10)
+# #pause(10)
 
 
 
@@ -535,15 +496,7 @@ errors = []  # Store error values
 #phase_slm = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)  
 init_ampl=np.sqrt(target_im) # Amplitude of the tweezer spots i.e. A = sqrt(intensity)
 #w_prev = target_im # as done by mezzanti
-# plt.figure(figsize=(8, 6))
-# plt.imshow(target_im, cmap='gray', origin='upper')  # Flip origin if needed
-# plt.title("XXXXX")
-# plt.xlabel("X pixels")
-# plt.ylabel("Y pixels")
-# plt.colorbar(label="Intensity")
-# plt.tight_layout()
-# plt.show()
-# plt.pause(40)
+
 # Initial random phase in the range [-pi, pi]
 phase = 2 * np.pi * np.random.rand(SIZE_Y, SIZE_X) - np.pi
 #phase = np.zeros((SIZE_Y, SIZE_X))
@@ -553,6 +506,98 @@ num_peaks = 25
 
 phase_history = np.zeros((n_rep, 25))  # max_reps = total iterations
 
+std_int0 = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t0.npy")
+coords_0 = peak_local_max(std_int0, min_distance=4, num_peaks=25)
+alpha = 0.2 
+
+def error(coords_0, coordinates, alpha):
+    cost_matrix = np.linalg.norm(coords_0[:, None] - coordinates[None, :], axis=2)
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    matched_coords_0 = coords_0[row_ind]
+    matched_coords_1 = coordinates[col_ind]
+
+    # Get intensities at matched positions
+    I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
+    I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
+    delta_I = I_1 - I_0  # or (I_1 - I_0)/I_0 for relative change
+    image_shape = std_int.shape
+    ccd_mask = np.zeros(image_shape, dtype=std_int.dtype)  # same type as std_int
+
+    # Step 2: Fill in only the detected peaks with their intensity
+    for y, x in coordinates:
+        ccd_mask[y, x] = std_int[y, x]
+    error = tweez_fourier_scaled_std(ccd_mask)
+
+    coordinates_ccd = peak_local_max(
+        error,
+        min_distance=min_distance,
+        num_peaks=num_peaks    )
+    
+def apply_tweezer_intensity_correction(u, std_int0, std_int, coords_0, coords_1, alpha, min_distance, num_peaks):
+    """
+    Apply intensity correction to the phase-amplitude field `u` based on intensity differences
+    between previous and current camera frames.
+
+    Parameters:
+        u: complex ndarray
+            The field (e.g. from join_phase_ampl) in the target (Fourier) domain.
+        std_int0: ndarray
+            CCD image from previous frame.
+        std_int: ndarray
+            CCD image from current frame.
+        coords_0: ndarray
+            Detected tweezer coordinates from the previous frame (CCD space).
+        coords_1: ndarray
+            Detected tweezer coordinates from the current frame (CCD space).
+        alpha: float
+            Correction scaling factor.
+        min_distance: int
+            Minimum distance between peaks in the scaled intensity.
+        num_peaks: int
+            Number of peaks to match.
+    Returns:
+        updated `u` with corrected intensities at matched tweezer positions.
+    """
+
+    # Match CCD-detected coordinates across frames
+    row_ind, col_ind = match_detected_to_target(coords_0, coords_1)
+    matched_coords_0 = coords_0[row_ind]
+    matched_coords_1 = coords_1[col_ind]
+
+    # Compute intensity difference at those matched CCD coordinates
+    I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
+    I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
+    delta_I = I_1 - I_0
+
+    # Build a CCD image with only the current matched peaks
+    ccd_mask = np.zeros_like(std_int)
+    for y, x in matched_coords_1:
+        ccd_mask[y, x] = std_int[y, x]
+
+    # Transform CCD mask into Fourier domain via tweez_fourier_scaled_std
+    std_int_fourier = tweez_fourier_scaled_std(ccd_mask)
+
+    # Detect peaks in the Fourier image — this gives us the pixels to update in `u`
+    coordinates_u = peak_local_max(
+        std_int_fourier,
+        min_distance=min_distance,
+        num_peaks=num_peaks
+    )
+
+    # Match back to the target coordinates (same shape as `u`)
+    target_coords = np.argwhere(np.abs(u) > 0)
+    row_u, col_u = match_detected_to_target(coordinates_u, target_coords)
+
+    # Final matched coordinates for correction in `u`
+    matched_coords_u = target_coords[col_u]
+
+    # Apply correction at matched locations in u
+    for idx, (y, x) in enumerate(matched_coords_u):
+        if 0 <= y < u.shape[0] and 0 <= x < u.shape[1]:
+            correction = 1 - alpha * delta_I[idx]
+            u[y, x] *= correction
+
+    return u
 
 
 for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
@@ -597,9 +642,68 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     phase=np.angle(u) # This is from -pi to pi
 
 
+    # if rep > 3:
+    #     cost_matrix = np.linalg.norm(coords_0[:, None] - coordinates[None, :], axis=2)
+    #     row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    #     matched_coords_0 = coords_0[row_ind]
+    #     matched_coords_1 = coordinates[col_ind]
+
+    #     # Get intensities at matched positions
+    #     I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
+    #     I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
+    #     delta_I = I_1 - I_0  # or (I_1 - I_0)/I_0 for relative change
+    #     # Plotting
+    #     plt.figure(figsize=(10, 8))
+    #     plt.imshow(std_int, cmap='gray')
+    #     plt.title("Intensity Change Overlay (std_int1 background)")
+
+    #     for i in range(len(matched_coords_1)):
+    #         y, x = matched_coords_1[i]
+    #         di = delta_I[i]
+    #         plt.scatter(x, y, c='red' if di > 0 else 'blue', s=100, marker='o')
+    #         plt.text(x+2, y, f"{di:.2f}", color='yellow', fontsize=9)
+
+    #     plt.colorbar(label='std_int1 Intensity')
+    #     plt.ylabel("Y pixels")
+    #     plt.grid(False)
+    #     plt.tight_layout()
+    #     plt.show()
+    #     plt.pause(1)
+    if rep > 5:
+        # Match current tweezers to initial ones
+        cost_matrix = np.linalg.norm(coords_0[:, None] - coordinates[None, :], axis=2)
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        matched_coords_0 = coords_0[row_ind]
+        matched_coords_1 = coordinates[col_ind]
+
+        I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
+        I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
+
+        delta_I = I_1 - I_0
+        rel_error = delta_I / I_0  # Optional
+
+        # Log statistics
+        total_abs_error = np.sum(np.abs(delta_I))
+        max_error = np.max(np.abs(delta_I))
+        mean_error = np.mean(np.abs(delta_I))
+
+        print(f"Total ΔI: {total_abs_error:.4f}, Max: {max_error:.4f}, Mean: {mean_error:.4f}")
+
+        # Save for later plotting
+        if rep == 6:
+            total_error_history = []
+            max_error_history = []
+            mean_error_history = []
+
+        total_error_history.append(total_abs_error)
+        max_error_history.append(max_error)
+        mean_error_history.append(mean_error)
+
+            
     i = 3
     if rep<i:
         u = join_phase_ampl(phase, init_ampl)
+
 
     # else:
     #     ###### Weights ########
@@ -681,6 +785,35 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         # pause(100)
 
         u=join_phase_ampl(masked_phase,w) 
+        u_before_correction = u.copy()
+
+        # # Now you can compare:
+        # plt.figure(figsize=(8, 6))
+        # plt.imshow(np.abs(u_before_correction))
+        # plt.title("Before Intensity Correction")
+        # plt.colorbar()
+        # plt.tight_layout()
+
+        u = apply_tweezer_intensity_correction(
+            u,
+            std_int0,
+            std_int,
+            coords_0=coords_0,
+            coords_1=coordinates,
+            alpha=0.1,
+            min_distance=3,
+            num_peaks=25
+        )
+
+        # plt.figure(figsize=(8, 6))
+        # plt.imshow(np.abs(u))
+        # plt.title("After Intensity Correction")
+        # plt.colorbar()
+        # plt.tight_layout()
+        # plt.show()
+        # plt.pause(50)
+
+        
 
     error_value = intensity_std(std_int, coordinates)
     errors.append(error_value)
@@ -750,10 +883,21 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
         
 
-np.save(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t1_updated.npy", std_int)
+np.save(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t1.npy", std_int)
 
 
-
+plt.figure(figsize=(10, 6))
+plt.plot(total_error_history, label='Total Absolute ΔI')
+plt.plot(mean_error_history, label='Mean Absolute ΔI')
+plt.plot(max_error_history, label='Max ΔI')
+plt.xlabel('Iteration')
+plt.ylabel('Intensity Error')
+plt.title('Convergence of Intensity Correction')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+plt.pause(30)
 # plt.figure()
 # plt.plot(np.arange(n_rep), errors, "-o")
 # plt.yscale('log')  # Set y-axis to log scale
@@ -791,34 +935,34 @@ output_folder = r"C:\Users\Yb\SLM\SLM\data\images"
 # plt.grid(True, which="both", linestyle="--", alpha=0.5)
 # plt.tight_layout()
 
-log_error_path = os.path.join(output_folder, f"gsw_errors_log_{basename}.png")
-plt.savefig(log_error_path)
-print(f"Saved log error plot to: {log_error_path}")
-# ******
+# log_error_path = os.path.join(output_folder, f"gsw_errors_log_{basename}.png")
+# plt.savefig(log_error_path)
+# print(f"Saved log error plot to: {log_error_path}")
+# # ******
 
-# # === Plot final CCD image ===
-# plt.figure(figsize=(10, 8))
-# plt.imshow(std_int, cmap='gray')
-# plt.title("Final CCD Image")
-# plt.xlabel("X Pixels")
-# plt.ylabel("Y Pixels")
-# plt.colorbar(label="Intensity")
-# plt.tight_layout()
+# # # === Plot final CCD image ===
+# # plt.figure(figsize=(10, 8))
+# # plt.imshow(std_int, cmap='gray')
+# # plt.title("Final CCD Image")
+# # plt.xlabel("X Pixels")
+# # plt.ylabel("Y Pixels")
+# # plt.colorbar(label="Intensity")
+# # plt.tight_layout()
 
-final_ccd_path = os.path.join(output_folder, f"final_ccd_image_{basename}.png")
-plt.savefig(final_ccd_path)
-print(f"Saved final CCD image plot to: {final_ccd_path}")
-#plt.show()
+# final_ccd_path = os.path.join(output_folder, f"final_ccd_image_{basename}.png")
+# plt.savefig(final_ccd_path)
+# print(f"Saved final CCD image plot to: {final_ccd_path}")
+# #plt.show()
 
-# === Save final phase as .npy or .png ===
-phase_uint8 = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)
-npy_save_path = os.path.join(output_folder, f"{basename}_slm.npy")
-np.save(npy_save_path, phase_uint8)
-print(f"Saved final phase to: {npy_save_path}")
-# === Save final phase as .npy or .png ===
-npy_save_path = os.path.join(output_folder, f"{basename}.npy")
-np.save(npy_save_path, phase)
-print(f"Saved final phase to: {npy_save_path}")
+# # === Save final phase as .npy or .png ===
+# phase_uint8 = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)
+# npy_save_path = os.path.join(output_folder, f"{basename}_slm.npy")
+# np.save(npy_save_path, phase_uint8)
+# print(f"Saved final phase to: {npy_save_path}")
+# # === Save final phase as .npy or .png ===
+# npy_save_path = os.path.join(output_folder, f"{basename}.npy")
+# np.save(npy_save_path, phase)
+# print(f"Saved final phase to: {npy_save_path}")
 
 # === Close camera ===
 camera.StopGrabbing()
