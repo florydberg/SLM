@@ -287,49 +287,79 @@ def tweez_fourier_scaled_std(target_im_ideal):
     return target_im
 
 
-def tweez_fourier_scaled(target_im_ideal):
+# def tweez_fourier_scaled(target_im_ideal):
 
+#     wavelength = 813e-9  
+#     focal_length = 300e-3 
+#     pixel_pitch_slm = 8e-6  
+#     pixel_pitch_ccd = 3.45e-6  
+#     SIZE_Y,SIZE_X=target_im_ideal.shape
+
+#     delta_x = (wavelength * focal_length) / (SIZE_X * pixel_pitch_slm)  
+#     delta_y = (wavelength * focal_length) / (SIZE_Y * pixel_pitch_slm)  
+
+#     scale_x = delta_x / pixel_pitch_ccd
+#     scale_y = delta_y / pixel_pitch_ccd
+
+#     # print(f"Fourier Scaling Δx = {delta_x:.3e} m, Δy = {delta_y:.3e} m")
+#     # print(f"Scaling in CCD pixels: scale_x = {scale_x:.2f}, scale_y = {scale_y:.2f}")
+
+#     # # === Map Tweezer Positions from CCD to SLM ===
+#     tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  
+#     #tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  # or >= 0.99
+#     # Convert CCD pixels to real-world distances
+
+#     tweezer_positions_ccd_x = (tweezer_positions_ccd[:, 1] - SIZE_X / 2) * pixel_pitch_ccd
+#     tweezer_positions_ccd_y = (tweezer_positions_ccd[:, 0] - SIZE_Y / 2) * pixel_pitch_ccd
+
+#     # Apply Fourier Scaling to map to SLM space
+#     tweezer_positions_slm_x = tweezer_positions_ccd_x / delta_x
+#     tweezer_positions_slm_y = tweezer_positions_ccd_y / delta_y
+
+#     # Shift back to CCD coordinate space
+#     tweezer_positions_slm_x = np.round(tweezer_positions_slm_x + SIZE_X / 2).astype(int)
+#     tweezer_positions_slm_y = np.round(tweezer_positions_slm_y + SIZE_Y / 2).astype(int)
+
+#     target_im = np.zeros((SIZE_Y, SIZE_X), dtype=np.uint8)
+#     target_im[tweezer_positions_slm_y, tweezer_positions_slm_x] = 255  
+#     # # Plot Phase Pattern
+#     # plt.figure(figsize=(8, 6))
+#     # plt.imshow(target_im)
+#     # plt.colorbar(label="8-bit values")
+#     # plt.title("PScaled Tweezer Positions")
+#     # plt.xlabel("SLM X")
+#     # plt.ylabel("SLM Y")
+#     # plt.show()
+#     return target_im
+
+
+def tweez_fourier_scaled(target_im_ideal):
     wavelength = 813e-9  
     focal_length = 300e-3 
     pixel_pitch_slm = 8e-6  
     pixel_pitch_ccd = 3.45e-6  
-    SIZE_Y,SIZE_X=target_im_ideal.shape
+    SIZE_Y, SIZE_X = target_im_ideal.shape
 
     delta_x = (wavelength * focal_length) / (SIZE_X * pixel_pitch_slm)  
     delta_y = (wavelength * focal_length) / (SIZE_Y * pixel_pitch_slm)  
 
-    scale_x = delta_x / pixel_pitch_ccd
-    scale_y = delta_y / pixel_pitch_ccd
-
-    # print(f"Fourier Scaling Δx = {delta_x:.3e} m, Δy = {delta_y:.3e} m")
-    # print(f"Scaling in CCD pixels: scale_x = {scale_x:.2f}, scale_y = {scale_y:.2f}")
-
-    # # === Map Tweezer Positions from CCD to SLM ===
-    tweezer_positions_ccd = np.argwhere(target_im_ideal == 1)  
-    #tweezer_positions_ccd = np.argwhere(target_im_ideal > 0.5)  # or >= 0.99
-    # Convert CCD pixels to real-world distances
+    tweezer_positions_ccd = np.argwhere(target_im_ideal > 0)  # Use all non-zero amplitudes
 
     tweezer_positions_ccd_x = (tweezer_positions_ccd[:, 1] - SIZE_X / 2) * pixel_pitch_ccd
     tweezer_positions_ccd_y = (tweezer_positions_ccd[:, 0] - SIZE_Y / 2) * pixel_pitch_ccd
 
-    # Apply Fourier Scaling to map to SLM space
     tweezer_positions_slm_x = tweezer_positions_ccd_x / delta_x
     tweezer_positions_slm_y = tweezer_positions_ccd_y / delta_y
 
-    # Shift back to CCD coordinate space
     tweezer_positions_slm_x = np.round(tweezer_positions_slm_x + SIZE_X / 2).astype(int)
     tweezer_positions_slm_y = np.round(tweezer_positions_slm_y + SIZE_Y / 2).astype(int)
 
-    target_im = np.zeros((SIZE_Y, SIZE_X), dtype=np.uint8)
-    target_im[tweezer_positions_slm_y, tweezer_positions_slm_x] = 255  
-    # # Plot Phase Pattern
-    # plt.figure(figsize=(8, 6))
-    # plt.imshow(target_im)
-    # plt.colorbar(label="8-bit values")
-    # plt.title("PScaled Tweezer Positions")
-    # plt.xlabel("SLM X")
-    # plt.ylabel("SLM Y")
-    # plt.show()
+    target_im = np.zeros_like(target_im_ideal)
+
+    for (y_ccd, x_ccd), x_slm, y_slm in zip(tweezer_positions_ccd, tweezer_positions_slm_x, tweezer_positions_slm_y):
+        if 0 <= y_slm < SIZE_Y and 0 <= x_slm < SIZE_X:
+            target_im[y_slm, x_slm] = target_im_ideal[y_ccd, x_ccd]
+
     return target_im
 
 
@@ -358,11 +388,19 @@ def generate_circle_positions(num_tweezers, img_shape, radius=300):
 # --- Main Code ---
 
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\random_spaced_tweezers.npy")
-target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\tweezer_step_9.npy")
+target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\notebooks\Tweezer_step_images\tweezer_step_0004_updated.npy")
 target_im_ideal = norm(target_im_ideal)
-
+plt.figure(figsize=(8, 6))
+plt.imshow(target_im_ideal, cmap='gray', origin='upper')  # Flip origin if needed
+plt.title("Target Image After Fourier Scaling")
+plt.xlabel("X pixels")
+plt.ylabel("Y pixels")
+plt.colorbar(label="Intensity")
+plt.tight_layout()
+plt.show()
+#pause(10)
 # Number of iterations
-n_rep = 30
+n_rep = 16
 #target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
@@ -372,6 +410,7 @@ n_rep = 30
 #target_im = neww() 
 target_im = tweez_fourier_scaled(target_im_ideal)
 target_im=norm(target_im)   # Image in intensity units [0,1]
+target_im = np.round((target_im) * 255).astype(np.uint8)
 SIZE_Y,SIZE_X=target_im.shape
 #target_im = tweez_fourier_scaled(target_im_ideal)
 
@@ -384,7 +423,7 @@ SIZE_Y,SIZE_X=target_im.shape
 # plt.colorbar(label="Intensity")
 # plt.tight_layout()
 # plt.show()
-# #pause(10)
+# pause(10)
 
 
 
@@ -496,7 +535,15 @@ errors = []  # Store error values
 #phase_slm = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)  
 init_ampl=np.sqrt(target_im) # Amplitude of the tweezer spots i.e. A = sqrt(intensity)
 #w_prev = target_im # as done by mezzanti
-
+# plt.figure(figsize=(8, 6))
+# plt.imshow(target_im, cmap='gray', origin='upper')  # Flip origin if needed
+# plt.title("XXXXX")
+# plt.xlabel("X pixels")
+# plt.ylabel("Y pixels")
+# plt.colorbar(label="Intensity")
+# plt.tight_layout()
+# plt.show()
+# plt.pause(40)
 # Initial random phase in the range [-pi, pi]
 phase = 2 * np.pi * np.random.rand(SIZE_Y, SIZE_X) - np.pi
 #phase = np.zeros((SIZE_Y, SIZE_X))
@@ -553,7 +600,6 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     i = 3
     if rep<i:
         u = join_phase_ampl(phase, init_ampl)
-
 
     # else:
     #     ###### Weights ########
@@ -704,6 +750,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
         
 
+np.save(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t1_updated.npy", std_int)
 
 
 
