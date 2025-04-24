@@ -363,7 +363,7 @@ target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\notebooks\Tweezer_step_images\tw
 target_im_ideal = norm(target_im_ideal)
 
 # Number of iterations
-n_rep = 9
+n_rep = 7
 #target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
@@ -806,7 +806,6 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
 
         u=join_phase_ampl(masked_phase,w) 
-        u_before_correction = u.copy()
 
         # # Now you can compare:
         # plt.figure(figsize=(8, 6))
@@ -815,16 +814,6 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         # plt.colorbar()
         # plt.tight_layout()
 
-        u = apply_tweezer_intensity_correction(
-            u,
-            std_int0,
-            std_int,
-            coords_0=coords_0,
-            coords_1=coordinates,
-            alpha=0.1,
-            min_distance=3,
-            num_peaks=25
-        )
 
         # plt.figure(figsize=(8, 6))
         # plt.imshow(np.abs(u))
@@ -910,74 +899,199 @@ iter = 10
 loss_history = []
 
 
-u = join_phase_ampl(phase, PS_shape)
-u = sfft.fft2(u)
-u = sfft.fftshift(u)
-#fft_phase = np.fft.fftshift(np.fft.fft2(phase))
-peak_coords = peak_local_max(np.abs(u), num_peaks=25, min_distance=5)
-magnitude = np.abs(u)
+# After WGS phase:
+u = join_phase_ampl(masked_phase,w) 
+#u = sfft.fft2(u)
+#u = sfft.fftshift(u)
+
 fft_phase = np.angle(u)
-#Plot the magnitude with peak coordinates overlaid
-plt.figure(figsize=(12, 6))
-plt.imshow(magnitude, cmap='hot', interpolation='nearest')
-plt.scatter(peak_coords[:, 1], peak_coords[:, 0], color='cyan', marker='x', label='Detected Peaks')
-plt.colorbar(label='|FFT Phase|')
-plt.title('FFT Magnitude with Detected Peaks')
-plt.xlabel('kx')
-plt.ylabel('ky')
-plt.legend()
-plt.tight_layout()
-plt.show()
-plt.pause(30)
-def genome_to_phase_amplitudes(genome, peak_coords):
+amplitudes_wgs = np.abs(u)
+peak_coords = peak_local_max(amplitudes_wgs, num_peaks=25, min_distance=5)
+
+amps = amplitudes_wgs[peak_coords[:, 0], peak_coords[:, 1]]
+#print(amps)
+#amps /= np.mean(amps)  # Normalize
+#amps = norm(amps)
+# plt.figure(figsize=(10, 4))
+# plt.plot(amps, marker='o')
+# plt.xlabel("Tweezer index")
+# plt.ylabel("Amplitude")
+# plt.title("Tweezer Amplitudes")
+# plt.grid(True)
+# plt.tight_layout()
+# #Plot the magnitude with peak coordinates overlaid
+# plt.figure(figsize=(12, 6))
+# plt.imshow(amplitudes_wgs, cmap='hot', interpolation='nearest')
+# plt.scatter(peak_coords[:, 1], peak_coords[:, 0], color='cyan', marker='x', label='Detected Peaks')
+# plt.colorbar(label='|FFT Phase|')
+# plt.title('FFT Magnitude with Detected Peaks')
+# plt.xlabel('kx')
+# plt.ylabel('ky')
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# plt.pause(30)
+
+# plt.pause(30)
+def genome_to_phase_amplitudes(genome, peak_coords, fft_phase):
     ft = np.zeros((SIZE_Y, SIZE_X), dtype=complex)
     for A, (ky, kx) in zip(genome, peak_coords):
-        ft[ky, kx] = A * np.exp(1j * np.angle(fft_phase[ky, kx]))  # Keep original phase
+        ft[ky, kx] = A * np.exp(1j * fft_phase[ky, kx])
     pattern = np.fft.ifft2(np.fft.ifftshift(ft))
     return np.angle(pattern)
 
 
-def fitness_func(ga, genome, idx):
-    phase = genome_to_phase_amplitudes(genome, peak_coords)
-    pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1)
-    pattern_to_slm += blazed_grating + phase_correction
-    slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image)
-    pause(0.02)
+amplitudes_wgs = np.abs(u[peak_coords[:,0], peak_coords[:,1]])
+amplitudes_wgs /= np.linalg.norm(amplitudes_wgs) * np.sqrt(len(amplitudes_wgs))
 
+def init_population_local_old(amps, pop_size=10, noise_scale=0.01):
+    pop = [amps.copy()]
+    for _ in range(pop_size - 1):
+        noise = noise_scale * (np.random.rand(*amps.shape) - 0.5)
+        new = np.clip(amps + noise, 0.8, 1.2)
+        pop.append(new)
+    return np.array(pop)
+
+def init_population_local_new_old(wgs_amps, pop_size=10, spread=0.05):
+    return np.array([
+        np.clip(wgs_amps + spread * (np.random.rand(*wgs_amps.shape) - 0.5), 0.8, 1.2)
+        for _ in range(pop_size)
+    ])
+
+
+def fitness_func(ga, genome, idx):
+    phase = genome_to_phase_amplitudes(genome, peak_coords, fft_phase)
+    pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1) + blazed_grating + phase_correction    
+    slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image);
+    pause(0.02)
     std_int = basler() / 255.0
+
     im2.set_data(phase)
     im3.set_data(std_int)
     plt.tight_layout()
     plt.pause(0.01)
+    
     coords = peak_local_max(std_int, num_peaks=25, min_distance=4)
-    intensities = std_int[coords[:, 0], coords[:, 1]]
-    mean_I, std_I = np.mean(intensities), np.std(intensities)
-    if mean_I < 1e-3 or len(coords) < 25: return -1e5
-    rel_std = std_I / mean_I
-    return -rel_std + 0.1 * mean_I  # Favor uniform & bright tweezers
 
+    # amppps = np.zeros_like(phase)
+
+    # # Unpack coordinates
+    # ys, xs = coords[:, 0], coords[:, 1]
+    image_shape = std_int.shape
+    ccd_mask = np.zeros(image_shape, dtype=std_int.dtype)  # same type as std_int
+
+    # Step 2: Fill in only the detected peaks with their intensity
+    for y, x in coords:
+        ccd_mask[y, x] = std_int[y, x]
+    std_int = tweez_fourier_scaled_std(ccd_mask)
+
+    coordinates_ccd = peak_local_max(
+        std_int,
+        min_distance=min_distance,
+        num_peaks=num_peaks    )
+    row_ind, col_ind = match_detected_to_target(coordinates_ccd, peak_coords)
+
+    # # # Keep the phase values only at the detected peaks
+    # # amppps[ys, xs] = std_int[ys, xs]
+    # # plt.figure(figsize=(12, 6))
+    # # plt.imshow(amppps, cmap='hot', interpolation='nearest')
+    # # plt.scatter(coords[:, 1], coords[:, 0], color='cyan', marker='x', label='Detected Peaks')
+    # # plt.colorbar(label='|FFT Phase|')
+    # # plt.title('FFT Magnitude with Detected Peaks')
+    # # plt.xlabel('kx')
+    # # plt.ylabel('ky')
+    # # plt.legend()
+    # # plt.tight_layout()
+    # # plt.show()
+    # # plt.pause(30)
+
+    # # Plotting matched peak coordinates to visually verify correct pairing
+    # fig, ax = plt.subplots(figsize=(10, 8))
+    # ax.imshow(std_int, cmap='gray')
+    # ax.scatter(peak_coords[:, 1], peak_coords[:, 0], c='cyan', marker='x', label='Target Peaks')
+    # ax.scatter(coordinates_ccd[:, 1], coordinates_ccd[:, 0], c='red', marker='o', label='Detected Peaks')
+
+    # # Draw matching lines
+    # for i, j in zip(row_ind, col_ind):
+    #     y1, x1 = coordinates_ccd[i]
+    #     y2, x2 = peak_coords[j]
+    #     ax.plot([x1, x2], [y1, y2], 'yellow', linewidth=1)
+
+    # ax.set_title("Matching of Detected Peaks to Target (WGS) Peaks")
+    # ax.legend()
+    # plt.tight_layout()
+    # plt.show()
+    # plt.pause(10)
+
+    matched_coords = coordinates_ccd[row_ind]        # these are the measured peaks
+    intensities = std_int[matched_coords[:, 0], matched_coords[:, 1]]
+    mean_I, std_I = np.mean(intensities), np.std(intensities)
+    rel_std = std_I / mean_I
+    baseline_rel_std = 0.032
+    # This penalizes if worse than WGS
+    penalty = max(rel_std - baseline_rel_std, 0)
+    print(rel_std)
+    return -rel_std #- 5000 * penalty #+ 0.1 * mean_I
+def init_population_local(amps, pop_size=10, eps=0.02):
+    """
+    Initialize population by adding small localized noise around each WGS amplitude.
+    
+    Args:
+        amps: np.ndarray of shape (25,) – WGS amplitudes
+        pop_size: int – number of individuals in the population
+        eps: float – half-width of the mutation window (e.g. 0.02 means ±2%)
+
+    Returns:
+        np.ndarray of shape (pop_size, 25) – the initial population
+    """
+    pop = []
+    for _ in range(pop_size):
+        noise = eps * (np.random.rand(*amps.shape) - 0.5) * 2  # in range [-eps, +eps]
+        individual = np.clip(amps + noise, 0.0, None)  # clip to avoid negative amplitudes
+        pop.append(individual)
+    return np.array(pop)
+def make_gene_space(amps, eps=0.02):
+    """
+    Generate a gene_space list where each gene has its own [low, high] range around WGS value.
+
+    Args:
+        amps: np.ndarray of shape (25,) – WGS amplitudes
+        eps: float – half-width of the range
+
+    Returns:
+        List of dictionaries – PyGAD-compatible gene_space
+    """
+    return [
+        {'low': max(a - eps, 0.0), 'high': a + eps}
+        for a in amps
+    ]
 
 for rep in tqdm(range(iter), desc="Iterations", unit="it"):
     #initial_population = init_population_around(phase, pop_size=5, noise_scale=0.5)
    # phase_flat = phase.flatten()
+    #initial_pop = init_population_local(amps, pop_size=10)
+    eps = 0.02  # ±2% variation allowed per gene
+
+    initial_pop = init_population_local(amps, pop_size=20, eps=eps)
+    gene_space = make_gene_space(amps, eps=eps)
+
     ga_instance = pygad.GA(
     num_generations=15,
-    num_parents_mating=4,
-    sol_per_pop=10,
+    num_parents_mating=6,
+    sol_per_pop=20,
     num_genes=25,
-    init_range_low=0.5,
-    init_range_high=2.0,
+    initial_population=initial_pop,
     fitness_func=fitness_func,
-    gene_space=[{'low': 0, 'high': 3}] * 25,
+    gene_space=gene_space,
     mutation_type="adaptive",
-    mutation_percent_genes=[30, 10]  # High-quality solutions mutate 10%, low-quality mutate 30%
-
-    )
-
-
+    mutation_percent_genes=[3, 1],
+    keep_elitism=1,
+    parent_selection_type="rank"
+    )   
     ga_instance.run()
+
     best_solution, best_solution_fitness, _ = ga_instance.best_solution()
-    best_phase = genome_to_phase_amplitudes(best_solution, peak_coords)  # ⬅️ INSERT THIS INSTEAD
+    best_phase = genome_to_phase_amplitudes(best_solution, peak_coords, fft_phase)  # ⬅️ INSERT THIS INSTEAD
 
     best_solution_fitness, best_phase.shape
     # pattern_to_slm = np.flip(np.round((best_phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1) + blazed_grating + phase_correction # this part is the phase pattern to send to the slm
