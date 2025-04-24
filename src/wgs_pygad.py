@@ -363,7 +363,7 @@ target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\notebooks\Tweezer_step_images\tw
 target_im_ideal = norm(target_im_ideal)
 
 # Number of iterations
-n_rep = 6
+n_rep = 9
 #target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
@@ -803,15 +803,7 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         masked_phase[ys, xs] = phase[ys, xs]
         #asked_phase[ys, xs] = np.pi / 2
 
-        # plt.figure(figsize=(8, 6))
-        # plt.imshow(masked_phase)  # Flip origin if needed
-        # plt.title("Target Image After Fourier Scaling")
-        # plt.xlabel("X pixels")
-        # plt.ylabel("Y pixels")
-        # plt.colorbar(label="Intensity")
-        # plt.tight_layout()
-        # plt.show()
-        # pause(100)
+
 
         u=join_phase_ampl(masked_phase,w) 
         u_before_correction = u.copy()
@@ -909,126 +901,6 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
     #phase = phase[:,::-1] 
     #Final_ampl_phase = phase.copy()  # Final discretized phase (if needed)
-def lossfunc(std_int, target_im, min_distance, num_peaks):
-    coordinates = peak_local_max(
-        std_int,
-        min_distance=min_distance,
-        num_peaks=num_peaks
-    )
-    ccd_mask = np.zeros_like(std_int)
-    for y, x in coordinates:
-        ccd_mask[y, x] = std_int[y, x]
-
-    # Transform CCD mask into Fourier domain via tweez_fourier_scaled_std
-    std_int_fourier = tweez_fourier_scaled_std(ccd_mask)
-
-    # Detect peaks in the Fourier image — this gives us the pixels to update in `u`
-    coordinates_std_four = peak_local_max(
-        std_int_fourier,
-        min_distance=min_distance,
-        num_peaks=num_peaks
-    )
-    coordinates_target = peak_local_max(
-        target_im,
-        min_distance=min_distance,
-        num_peaks=num_peaks
-    )
-    # Match CCD-detected coordinates across frames
-    row_ind, col_ind = match_detected_to_target(coordinates_std_four, coordinates_target)
-    matched_coords_0 = coordinates_std_four[row_ind]
-    matched_coords_1 = coordinates_target[col_ind]
-
-    # Compute intensity difference at those matched CCD coordinates
-    I_0 = std_int_fourier[matched_coords_0[:, 0], matched_coords_0[:, 1]]
-    I_1 = target_im[matched_coords_1[:, 0], matched_coords_1[:, 1]]
-    delta_I = I_1 - I_0
-    # plt.figure(figsize=(10, 8))
-    # plt.imshow(std_int_fourier, cmap='gray', alpha=0.5)
-
-    # # Plot detected vs target peaks
-    # plt.scatter(coordinates_std_four[:, 1], coordinates_std_four[:, 0], c='red', marker='x', label='Detected (Fourier)')
-    # plt.scatter(coordinates_target[:, 1], coordinates_target[:, 0], c='cyan', marker='o', facecolors='none', label='Target')
-
-    # # Draw matching lines
-    # for i, j in zip(row_ind, col_ind):
-    #     p1 = coordinates_std_four[i]
-    #     p2 = coordinates_target[j]
-    #     plt.plot([p1[1], p2[1]], [p1[0], p2[0]], 'yellow', linestyle='--', linewidth=1)
-
-    # # Optional: Label points
-    # for i, (y, x) in enumerate(coordinates_std_four):
-    #     plt.text(x, y, f'{i}', color='red', fontsize=8, ha='center', va='center')
-    # for j, (y, x) in enumerate(coordinates_target):
-    #     plt.text(x, y, f'{j}', color='cyan', fontsize=8, ha='center', va='center')
-
-    # plt.title("Matched Peaks in Fourier vs Target Image")
-    # plt.xlabel("X pixels")
-    # plt.ylabel("Y pixels")
-    # plt.legend()
-    # plt.grid(True, linestyle='--', alpha=0.3)
-    # plt.tight_layout()
-    # plt.show()
-    # plt.pause(30)
-    intensities = std_int[coordinates[:, 0], coordinates[:, 1]]
-    rel_std = np.std(intensities) / np.mean(intensities)
-    
-    return rel_std, std_int_fourier
-
-        
-def run_simple_ga(target_intensity, amplitude, wgs_phase, generations=10, pop_size=10, top_k=5, mutation_rate=0.1):
-    SIZE_Y, SIZE_X = target_intensity.shape
-
-
-    def evaluate(phase):
-        # Send phase pattern to SLM
-        pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1)
-        pattern_to_slm = pattern_to_slm + blazed_grating + phase_correction
-        slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image)
-        pause(0.02)  # let the LCs settle
-
-        # Get camera feedback
-        std_int = basler() / 255.0
-
-        # Evaluate using real feedback against your target
-        delta_I, std_int_fourier = lossfunc(std_int, target_im, min_distance=4, num_peaks=25)
-        loss = np.mean(delta_I**2)
-
-        return loss, std_int
-    # Initialize population with WGS + small perturbations
-    population = [wgs_phase.copy()]
-    while len(population) < pop_size:
-        noise = 0.1 * (np.random.rand(SIZE_Y, SIZE_X) - 0.5)
-        phase_mutated = (wgs_phase + noise + np.pi) % (2 * np.pi) - np.pi
-        population.append(phase_mutated)
-
-    # Run GA
-# Run GA
-    for gen in range(generations):
-        scored = []
-        for p in population:
-            loss, intensity = evaluate(p)
-            scored.append((loss, p, intensity))
-
-        scored.sort(key=lambda x: x[0])
-        print(f"Gen {gen+1}: Best Loss = {scored[0][0]:.4e}")
-        survivors = [s[1] for s in scored[:top_k]]
-
-        # Create new generation
-        new_pop = survivors.copy()
-        while len(new_pop) < pop_size:
-            p1, p2 = pyrandom.sample(survivors, 2)
-            mask = np.random.rand(SIZE_Y, SIZE_X) > 0.5
-            child = np.where(mask, p1, p2)
-            mut_mask = np.random.rand(SIZE_Y, SIZE_X) < mutation_rate
-            child[mut_mask] += (np.random.rand(*child[mut_mask].shape) - 0.5) * 0.5
-            child = (child + np.pi) % (2 * np.pi) - np.pi
-            new_pop.append(child)
-
-        population = new_pop
-
-    best_loss, best_phase, best_intensity = scored[0]
-    return best_phase, best_intensity, best_loss
-
 
 iter = 10
 # Your SLM-ready final WGS output
@@ -1036,140 +908,77 @@ iter = 10
 # `target_im`: your ideal image in Fourier space
 # `PS_shape`: the known amplitude profile
 loss_history = []
-def fitness_func(ga_instance, solution, solution_idx):
-    try:
-        phase = solution.reshape(SIZE_Y, SIZE_X)
-        pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1)
-        pattern_to_slm += blazed_grating + phase_correction
-        slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image)
-        pause(0.02)
-
-        std_int = basler() / 255.0
-        coordinates = peak_local_max(std_int, min_distance=4, num_peaks=25)
-
-        if len(coordinates) == 0:
-            return -1e6
-
-        intensities = std_int[coordinates[:, 0], coordinates[:, 1]]
-        mean_I = np.mean(intensities)
-        std_I = np.std(intensities)
 
 
+u = join_phase_ampl(phase, PS_shape)
+u = sfft.fft2(u)
+u = sfft.fftshift(u)
+#fft_phase = np.fft.fftshift(np.fft.fft2(phase))
+peak_coords = peak_local_max(np.abs(u), num_peaks=25, min_distance=5)
+magnitude = np.abs(u)
+fft_phase = np.angle(u)
+#Plot the magnitude with peak coordinates overlaid
+plt.figure(figsize=(12, 6))
+plt.imshow(magnitude, cmap='hot', interpolation='nearest')
+plt.scatter(peak_coords[:, 1], peak_coords[:, 0], color='cyan', marker='x', label='Detected Peaks')
+plt.colorbar(label='|FFT Phase|')
+plt.title('FFT Magnitude with Detected Peaks')
+plt.xlabel('kx')
+plt.ylabel('ky')
+plt.legend()
+plt.tight_layout()
+plt.show()
+plt.pause(30)
+def genome_to_phase_amplitudes(genome, peak_coords):
+    ft = np.zeros((SIZE_Y, SIZE_X), dtype=complex)
+    for A, (ky, kx) in zip(genome, peak_coords):
+        ft[ky, kx] = A * np.exp(1j * np.angle(fft_phase[ky, kx]))  # Keep original phase
+    pattern = np.fft.ifft2(np.fft.ifftshift(ft))
+    return np.angle(pattern)
 
-        rel_std = std_I / mean_I
 
-        # Key idea: reward high brightness and uniformity
-        fitness = mean_I / (rel_std + 1e-6)  # Inverse rel_std weighted by mean
+def fitness_func(ga, genome, idx):
+    phase = genome_to_phase_amplitudes(genome, peak_coords)
+    pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1)
+    pattern_to_slm += blazed_grating + phase_correction
+    slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image)
+    pause(0.02)
 
-        # Optional: plot for monitoring
-        im2.set_data(phase)
-        im3.set_data(std_int)
-        plt.tight_layout()
-        plt.pause(0.01)
-
-        return fitness
-
-    except Exception as e:
-        print(f"[Fitness error] {e}")
-        return -1e5
-
-
-def init_population_around(phase, pop_size, noise_scale=0.1):
-    pop = [phase.copy()]
-    for _ in range(pop_size - 1):
-        high_freq_noise = noise_scale * np.random.randn(*phase.shape)  # more aggressive and uncorrelated
-        mutated = (phase + high_freq_noise + np.pi) % (2 * np.pi) - np.pi
-        pop.append(mutated)
-    return np.array([p.flatten() for p in pop])
-def fourier_mutation(phase, num_modes=5, magnitude=0.2):
-    phase = phase.reshape(SIZE_Y, SIZE_X)
-    phase_ft = np.fft.fft2(phase)
-    h, w = phase.shape
-
-    for _ in range(num_modes):
-        ky = np.random.randint(-h//2, h//2)
-        kx = np.random.randint(-w//2, w//2)
-        delta = (np.random.rand() - 0.5) * 2 * magnitude
-        phase_ft[ky % h, kx % w] += delta
-
-    mutated = np.fft.ifft2(phase_ft).real
-    mutated = (mutated + np.pi) % (2 * np.pi) - np.pi
-    return mutated.flatten()
-
-# PyGAD expects this exact signature!
-def custom_mutation_callback(ga_instance, offspring):
-    mutated_offspring = []
-    for individual in offspring:
-        reshaped = individual.reshape(SIZE_Y, SIZE_X)
-        mutated = fourier_mutation(reshaped)  # Your mutation logic
-        mutated_offspring.append(mutated.flatten())
-    return np.array(mutated_offspring)
-
-SIZE_Y, SIZE_X = 1200, 1920
-y = np.linspace(-1, 1, SIZE_Y)
-x = np.linspace(-1, 1, SIZE_X)
-X, Y = np.meshgrid(x, y)
-
-def genome_to_phase(genome):
-    phase = np.zeros_like(X)
-    for i in range(num_tweezers):
-        kx = genome[3*i + 0]
-        ky = genome[3*i + 1]
-        A  = genome[3*i + 2]
-        phase += A * (kx * X + ky * Y)
-    
-    # Wrap to [-π, π]
-    phase = (phase + np.pi) % (2 * np.pi) - np.pi
-    return phase
-def fitness_func(ga_instance, genome, idx):
-    try:
-        phase = genome_to_phase(genome)
-        pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1)
-        pattern_to_slm += blazed_grating + phase_correction
-        slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image)
-        pause(0.02)
-
-        std_int = basler() / 255.0
-        coordinates = peak_local_max(std_int, min_distance=4, num_peaks=25)
-
-        if len(coordinates) == 0:
-            return -100000
-
-        intensities = std_int[coordinates[:, 0], coordinates[:, 1]]
-        mean_I = np.mean(intensities)
-        std_I = np.std(intensities)
-
-        if mean_I < 1e-3:
-            return -1000000
-
-        rel_std = std_I / mean_I
-        return -rel_std + 0.1 * mean_I
-
-    except Exception as e:
-        print(f"[Fitness error] {e}")
-        return -100
+    std_int = basler() / 255.0
+    im2.set_data(phase)
+    im3.set_data(std_int)
+    plt.tight_layout()
+    plt.pause(0.01)
+    coords = peak_local_max(std_int, num_peaks=25, min_distance=4)
+    intensities = std_int[coords[:, 0], coords[:, 1]]
+    mean_I, std_I = np.mean(intensities), np.std(intensities)
+    if mean_I < 1e-3 or len(coords) < 25: return -1e5
+    rel_std = std_I / mean_I
+    return -rel_std + 0.1 * mean_I  # Favor uniform & bright tweezers
 
 
 for rep in tqdm(range(iter), desc="Iterations", unit="it"):
-    initial_population = init_population_around(phase, pop_size=5, noise_scale=0.5)
-    phase_flat = phase.flatten()
+    #initial_population = init_population_around(phase, pop_size=5, noise_scale=0.5)
+   # phase_flat = phase.flatten()
     ga_instance = pygad.GA(
-    num_generations=10,
-    num_parents_mating=3,
+    num_generations=15,
+    num_parents_mating=4,
+    sol_per_pop=10,
+    num_genes=25,
+    init_range_low=0.5,
+    init_range_high=2.0,
     fitness_func=fitness_func,
-    sol_per_pop=5,
-    num_genes=len(phase_flat),
-    initial_population=initial_population,
-    mutation_type=None,
-    on_mutation=custom_mutation_callback,
-    gene_space={'low': -np.pi, 'high': np.pi}
-)
+    gene_space=[{'low': 0, 'high': 3}] * 25,
+    mutation_type="adaptive",
+    mutation_percent_genes=[30, 10]  # High-quality solutions mutate 10%, low-quality mutate 30%
+
+    )
 
 
     ga_instance.run()
-
     best_solution, best_solution_fitness, _ = ga_instance.best_solution()
-    best_phase = best_solution.reshape((SIZE_Y, SIZE_X))
+    best_phase = genome_to_phase_amplitudes(best_solution, peak_coords)  # ⬅️ INSERT THIS INSTEAD
+
     best_solution_fitness, best_phase.shape
     # pattern_to_slm = np.flip(np.round((best_phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1) + blazed_grating + phase_correction # this part is the phase pattern to send to the slm
     # #else:
