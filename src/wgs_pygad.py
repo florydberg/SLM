@@ -1036,7 +1036,6 @@ iter = 10
 # `target_im`: your ideal image in Fourier space
 # `PS_shape`: the known amplitude profile
 loss_history = []
-
 def fitness_func(ga_instance, solution, solution_idx):
     try:
         phase = solution.reshape(SIZE_Y, SIZE_X)
@@ -1049,35 +1048,106 @@ def fitness_func(ga_instance, solution, solution_idx):
         coordinates = peak_local_max(std_int, min_distance=4, num_peaks=25)
 
         if len(coordinates) == 0:
-            return -100000  # Or some large penalty
+            return -1e6
+
+        intensities = std_int[coordinates[:, 0], coordinates[:, 1]]
+        mean_I = np.mean(intensities)
+        std_I = np.std(intensities)
+
+
+
+        rel_std = std_I / mean_I
+
+        # Key idea: reward high brightness and uniformity
+        fitness = mean_I / (rel_std + 1e-6)  # Inverse rel_std weighted by mean
+
+        # Optional: plot for monitoring
         im2.set_data(phase)
         im3.set_data(std_int)
         plt.tight_layout()
         plt.pause(0.01)
+
+        return fitness
+
+    except Exception as e:
+        print(f"[Fitness error] {e}")
+        return -1e5
+
+
+def init_population_around(phase, pop_size, noise_scale=0.1):
+    pop = [phase.copy()]
+    for _ in range(pop_size - 1):
+        high_freq_noise = noise_scale * np.random.randn(*phase.shape)  # more aggressive and uncorrelated
+        mutated = (phase + high_freq_noise + np.pi) % (2 * np.pi) - np.pi
+        pop.append(mutated)
+    return np.array([p.flatten() for p in pop])
+def fourier_mutation(phase, num_modes=5, magnitude=0.2):
+    phase = phase.reshape(SIZE_Y, SIZE_X)
+    phase_ft = np.fft.fft2(phase)
+    h, w = phase.shape
+
+    for _ in range(num_modes):
+        ky = np.random.randint(-h//2, h//2)
+        kx = np.random.randint(-w//2, w//2)
+        delta = (np.random.rand() - 0.5) * 2 * magnitude
+        phase_ft[ky % h, kx % w] += delta
+
+    mutated = np.fft.ifft2(phase_ft).real
+    mutated = (mutated + np.pi) % (2 * np.pi) - np.pi
+    return mutated.flatten()
+
+# PyGAD expects this exact signature!
+def custom_mutation_callback(ga_instance, offspring):
+    mutated_offspring = []
+    for individual in offspring:
+        reshaped = individual.reshape(SIZE_Y, SIZE_X)
+        mutated = fourier_mutation(reshaped)  # Your mutation logic
+        mutated_offspring.append(mutated.flatten())
+    return np.array(mutated_offspring)
+
+SIZE_Y, SIZE_X = 1200, 1920
+y = np.linspace(-1, 1, SIZE_Y)
+x = np.linspace(-1, 1, SIZE_X)
+X, Y = np.meshgrid(x, y)
+
+def genome_to_phase(genome):
+    phase = np.zeros_like(X)
+    for i in range(num_tweezers):
+        kx = genome[3*i + 0]
+        ky = genome[3*i + 1]
+        A  = genome[3*i + 2]
+        phase += A * (kx * X + ky * Y)
+    
+    # Wrap to [-π, π]
+    phase = (phase + np.pi) % (2 * np.pi) - np.pi
+    return phase
+def fitness_func(ga_instance, genome, idx):
+    try:
+        phase = genome_to_phase(genome)
+        pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1)
+        pattern_to_slm += blazed_grating + phase_correction
+        slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image)
+        pause(0.02)
+
+        std_int = basler() / 255.0
+        coordinates = peak_local_max(std_int, min_distance=4, num_peaks=25)
+
+        if len(coordinates) == 0:
+            return -100000
 
         intensities = std_int[coordinates[:, 0], coordinates[:, 1]]
         mean_I = np.mean(intensities)
         std_I = np.std(intensities)
 
         if mean_I < 1e-3:
-            return -1000000  # Penalize dim patterns
+            return -1000000
 
         rel_std = std_I / mean_I
-        fitness = -rel_std + 0.1 * mean_I
-
-        return fitness
+        return -rel_std + 0.1 * mean_I
 
     except Exception as e:
         print(f"[Fitness error] {e}")
         return -100
-
-def init_population_around(phase, pop_size, noise_scale=0.1):
-    pop = [phase.copy()]
-    for _ in range(pop_size - 1):
-        noise = noise_scale * (np.random.rand(*phase.shape) - 0.5)
-        mutated = (phase + noise + np.pi) % (2 * np.pi) - np.pi
-        pop.append(mutated)
-    return np.array([p.flatten() for p in pop])
 
 
 for rep in tqdm(range(iter), desc="Iterations", unit="it"):
@@ -1090,9 +1160,11 @@ for rep in tqdm(range(iter), desc="Iterations", unit="it"):
     sol_per_pop=5,
     num_genes=len(phase_flat),
     initial_population=initial_population,
-    mutation_percent_genes=8,
+    mutation_type=None,
+    on_mutation=custom_mutation_callback,
     gene_space={'low': -np.pi, 'high': np.pi}
-    )
+)
+
 
     ga_instance.run()
 
