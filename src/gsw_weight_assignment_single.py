@@ -5,7 +5,7 @@ from scipy.ndimage import binary_dilation
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm  # progress bar
 from PIL import Image
-import random
+import random as pyrandom
 import imageio
 import sys
 from pylab import *
@@ -20,6 +20,7 @@ from skimage.feature import peak_local_max
 from scipy.ndimage import zoom
 from scipy.optimize import linear_sum_assignment
 import glob
+import pygad
 
 def epsilon(u_int, target_im_ideal, neighborhood=80):
     """
@@ -362,7 +363,7 @@ target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\notebooks\Tweezer_step_images\tw
 target_im_ideal = norm(target_im_ideal)
 
 # Number of iterations
-n_rep = 16
+n_rep = 20
 #target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
@@ -568,7 +569,35 @@ def apply_tweezer_intensity_correction(u, std_int0, std_int, coords_0, coords_1,
     I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
     I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
     delta_I = I_1 - I_0
+    # plt.figure(figsize=(10, 8))
+    # plt.imshow(std_int, cmap='gray', alpha=0.5)
+    
+    # # Plot original tweezers
+    # plt.scatter(coords_0[:, 1], coords_0[:, 0], c='cyan', marker='o', facecolors='none', label='Frame 0 Tweezers')
+    
+    # # Plot new tweezers
+    # plt.scatter(coords_1[:, 1], coords_1[:, 0], c='red', marker='x', label='Frame N Tweezers')
+    
+    # # Draw matching lines
+    # for i, j in zip(row_ind, col_ind):
+    #     p1 = coords_0[i]
+    #     p2 = coords_1[j]
+    #     plt.plot([p1[1], p2[1]], [p1[0], p2[0]], 'yellow', linestyle='--', linewidth=1)
 
+    # # Add numbering
+    # for i, (y, x) in enumerate(coords_0):
+    #     plt.text(x, y, f'{i}', color='cyan', fontsize=9, ha='center', va='center')
+    # for j, (y, x) in enumerate(coords_1):
+    #     plt.text(x, y, f'{j}', color='red', fontsize=9, ha='center', va='center')
+
+    # plt.title(title)
+    # plt.xlabel("X Pixels")
+    # plt.ylabel("Y Pixels")
+    # plt.legend()
+    # plt.grid(True, linestyle='--', alpha=0.3)
+    # plt.tight_layout()
+    # plt.show()
+    # plt.pause(5)
     # Build a CCD image with only the current matched peaks
     ccd_mask = np.zeros_like(std_int)
     for y, x in matched_coords_1:
@@ -598,8 +627,8 @@ def apply_tweezer_intensity_correction(u, std_int0, std_int, coords_0, coords_1,
             u[y, x] *= correction
 
     return u
-
-
+phase_evolution = []
+fixphase_start_rep = 12  # when to switch to FixPhaseGS
 for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
     # phase_2pi = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8) #convert phase in [0, 2pi) range and then convert to 8-bit
@@ -668,38 +697,38 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     #     plt.grid(False)
     #     plt.tight_layout()
     #     plt.show()
-    #     plt.pause(1)
-    if rep > 5:
-        # Match current tweezers to initial ones
-        cost_matrix = np.linalg.norm(coords_0[:, None] - coordinates[None, :], axis=2)
-        row_ind, col_ind = linear_sum_assignment(cost_matrix)
-        matched_coords_0 = coords_0[row_ind]
-        matched_coords_1 = coordinates[col_ind]
+    # #     plt.pause(1)
+    # if rep > 5:
+    #     # Match current tweezers to initial ones
+    #     cost_matrix = np.linalg.norm(coords_0[:, None] - coordinates[None, :], axis=2)
+    #     row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    #     matched_coords_0 = coords_0[row_ind]
+    #     matched_coords_1 = coordinates[col_ind]
 
-        I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
-        I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
+    #     I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
+    #     I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
 
-        delta_I = I_1 - I_0
-        rel_error = delta_I / I_0  # Optional
+    #     delta_I = I_1 - I_0
+    #     rel_error = delta_I / I_0  # Optional
 
-        # Log statistics
-        total_abs_error = np.sum(np.abs(delta_I))
-        max_error = np.max(np.abs(delta_I))
-        mean_error = np.mean(np.abs(delta_I))
+    #     # Log statistics
+    #     total_abs_error = np.sum(np.abs(delta_I))
+    #     max_error = np.max(np.abs(delta_I))
+    #     mean_error = np.mean(np.abs(delta_I))
 
-        print(f"Total ΔI: {total_abs_error:.4f}, Max: {max_error:.4f}, Mean: {mean_error:.4f}")
+    #     print(f"Total ΔI: {total_abs_error:.4f}, Max: {max_error:.4f}, Mean: {mean_error:.4f}")
 
-        # Save for later plotting
-        if rep == 6:
-            total_error_history = []
-            max_error_history = []
-            mean_error_history = []
+    #     # Save for later plotting
+    #     if rep == 6:
+    #         total_error_history = []
+    #         max_error_history = []
+    #         mean_error_history = []
 
-        total_error_history.append(total_abs_error)
-        max_error_history.append(max_error)
-        mean_error_history.append(mean_error)
+    #     total_error_history.append(total_abs_error)
+    #     max_error_history.append(max_error)
+    #     mean_error_history.append(mean_error)
 
-            
+ 
     i = 3
     if rep<i:
         u = join_phase_ampl(phase, init_ampl)
@@ -769,10 +798,20 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
         # Unpack coordinates
         ys, xs = coordinates_last[:, 0], coordinates_last[:, 1]
+        if rep == fixphase_start_rep:
+            # Save fixed trap phases exactly at switch point
+            phase_fixed = phase[ys, xs]
 
-        # Keep the phase values only at the detected peaks
-        masked_phase[ys, xs] = phase[ys, xs]
+        if rep < fixphase_start_rep:
+            # Before FixPhaseGS: use live phases
+            masked_phase[ys, xs] = phase[ys, xs]
+        else:
+            # After FixPhaseGS: force fixed phases
+            masked_phase[ys, xs] = phase_fixed
+
         #asked_phase[ys, xs] = np.pi / 2
+        current_phases = masked_phase[ys, xs]  # These are the phase values at trap positions
+        phase_evolution.append(current_phases)
 
         # plt.figure(figsize=(8, 6))
         # plt.imshow(masked_phase)  # Flip origin if needed
@@ -783,38 +822,12 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
         # plt.tight_layout()
         # plt.show()
         # pause(100)
+        if i == 20:
+            # Save trap phases at first FixPhaseGS iteration
+            phase_fixed = phase[ys, xs]  # Save phases at trap positions
+
 
         u=join_phase_ampl(masked_phase,w) 
-        u_before_correction = u.copy()
-
-        # # Now you can compare:
-        # plt.figure(figsize=(8, 6))
-        # plt.imshow(np.abs(u_before_correction))
-        # plt.title("Before Intensity Correction")
-        # plt.colorbar()
-        # plt.tight_layout()
-
-        u = apply_tweezer_intensity_correction(
-            u,
-            std_int0,
-            std_int,
-            coords_0=coords_0,
-            coords_1=coordinates,
-            alpha=0.1,
-            min_distance=3,
-            num_peaks=25
-        )
-
-        # plt.figure(figsize=(8, 6))
-        # plt.imshow(np.abs(u))
-        # plt.title("After Intensity Correction")
-        # plt.colorbar()
-        # plt.tight_layout()
-        # plt.show()
-        # plt.pause(50)
-
-        
-
     error_value = intensity_std(std_int, coordinates)
     errors.append(error_value)
     # ******
@@ -853,51 +866,33 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
 
 
 
+phase_evolution = np.array(phase_evolution)  # Shape: (n_iterations, n_traps)
 
+# Unwrap the phase along the iteration axis (axis=0)
+phase_evolution_unwrapped = np.unwrap(phase_evolution, axis=0)
 
-    # if rep == 19:
-    #     # Apply FFT to get the tweezer pattern
-    #     u_fft = fft2(phase)
-    #     u_fft = fftshift(u_fft)
-
-    #     # Detect peaks in the FFT magnitude spectrum
-    #     coordinates = peak_local_max(
-    #         np.abs(u_fft),
-    #         min_distance=10,
-    #         num_peaks=25
-    #         )
-    #     circle_positions = generate_circle_positions(25, (1200, 1920))  # Get (y, x) coordinates
-
-    #     # Create a binary mask for the target image
-    #     target_im_ideal = np.zeros((1200, 1920), dtype=np.uint8)  # Create blank image
-    #     target_im_ideal[circle_positions[:, 0], circle_positions[:, 1]] = 1  # Set tweezers to 1
-    #     target_positions = tweez_fourier_scaled(target_im_ideal)  # Convert to Fourier space
-
-
-    #################### This part goes back to phases being from -pi to pi #################################
-
-    #phase = np.round((phase_rad + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)
-
-    #phase = phase[:,::-1] 
-    #Final_ampl_phase = phase.copy()  # Final discretized phase (if needed)
-
-        
-
-np.save(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t1.npy", std_int)
-
-
+# Plot
 plt.figure(figsize=(10, 6))
-plt.plot(total_error_history, label='Total Absolute ΔI')
-plt.plot(mean_error_history, label='Mean Absolute ΔI')
-plt.plot(max_error_history, label='Max ΔI')
-plt.xlabel('Iteration')
-plt.ylabel('Intensity Error')
-plt.title('Convergence of Intensity Correction')
-plt.legend()
+for trap_idx in range(phase_evolution_unwrapped.shape[1]):
+    plt.plot(phase_evolution_unwrapped[:, trap_idx], label=f"Trap {trap_idx}")
+
+plt.xlabel("Iteration")
+plt.ylabel("Unwrapped Phase (radians)")
+plt.title("Unwrapped Phase Evolution at Trap Positions Over Iterations")
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', ncol=2)
 plt.grid(True)
 plt.tight_layout()
 plt.show()
-plt.pause(30)
+
+############# Plotting ##################
+
+
+
+plt.pause(20)
+np.save(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t1.npy", std_int)
+
+
+
 # plt.figure()
 # plt.plot(np.arange(n_rep), errors, "-o")
 # plt.yscale('log')  # Set y-axis to log scale
