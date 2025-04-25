@@ -21,7 +21,7 @@ from scipy.ndimage import zoom
 from scipy.optimize import linear_sum_assignment
 import glob
 import pygad
-
+import cma 
 def epsilon(u_int, target_im_ideal, neighborhood=80):
     """
     Compute the relative intensity error for a 5x5 tweezer array.
@@ -891,7 +891,6 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     #phase = phase[:,::-1] 
     #Final_ampl_phase = phase.copy()  # Final discretized phase (if needed)
 
-iter = 10
 # Your SLM-ready final WGS output
 # `phase` from your last iteration
 # `target_im`: your ideal image in Fourier space
@@ -903,7 +902,6 @@ loss_history = []
 u = join_phase_ampl(masked_phase,w) 
 #u = sfft.fft2(u)
 #u = sfft.fftshift(u)
-
 
 fft_phase = np.angle(u)
 amplitudes_wgs = np.abs(u)
@@ -936,17 +934,17 @@ phases = fft_phase[peak_coords[:, 0], peak_coords[:, 1]]  # <-- new
 # plt.pause(30)
 
 # plt.pause(30)
-def genome_to_phase_amplitudes(genome, peak_coords, default_fft_phase):
-    """
-    genome: array of length 50: [A0, A1, ..., A24, phi0, phi1, ..., phi24]
-    """
-    amps = genome[:25]
-    phases = genome[25:]
-
+# def genome_to_phase_amplitudes(genome, peak_coords, fft_phase):
+#     ft = np.zeros((SIZE_Y, SIZE_X), dtype=complex)
+#     for A, (ky, kx) in zip(genome, peak_coords):
+#         ft[ky, kx] = A * np.exp(1j * fft_phase[ky, kx])
+#     pattern = np.fft.ifft2(np.fft.ifftshift(ft))
+#     return np.angle(pattern)
+def genome_to_phase_amplitudes(genome, peak_coords, fft_phase):
     ft = np.zeros((SIZE_Y, SIZE_X), dtype=complex)
-    for idx, (ky, kx) in enumerate(peak_coords):
-        A = amps[idx]
-        phi = phases[idx]
+    for i, (ky, kx) in enumerate(peak_coords):
+        A = genome[i]            # Amplitude
+        phi = genome[i + 25]      # Phase
         ft[ky, kx] = A * np.exp(1j * phi)
 
     pattern = np.fft.ifft2(np.fft.ifftshift(ft))
@@ -1049,121 +1047,108 @@ def fitness_func(ga, genome, idx):
     print(f"[GEN {ga.generations_completed}] rel_std: {rel_std:.4f}, cstd: {cstd:.4f}, loss: {loss:.6f}")
     return -loss #- 5000 * penalty #+ 0.1 * mean_I
 
-def init_population_local(amps, phases, pop_size=10, eps=0.02):
+
+def init_population_local(amps, pop_size=10, eps=0.02):
+    """
+    Initialize population by adding small localized noise around each WGS amplitude.
+    
+    Args:
+        amps: np.ndarray of shape (25,) – WGS amplitudes
+        pop_size: int – number of individuals in the population
+        eps: float – half-width of the mutation window (e.g. 0.02 means ±2%)
+
+    Returns:
+        np.ndarray of shape (pop_size, 25) – the initial population
+    """
     pop = []
     for _ in range(pop_size):
-        amp_noise = eps * (np.random.rand(*amps.shape) - 0.5) * 2
-        phase_noise = eps * (np.random.rand(*phases.shape) - 0.5) * 2 * np.pi  # phases in [-pi, pi]
-
-        individual_amps = np.clip(amps + amp_noise, 0.0, None)  # clip amplitudes
-        individual_phases = np.clip(phases + phase_noise, -np.pi, np.pi)  # wrap phases
-
-        genome = np.concatenate([individual_amps, individual_phases])
-        pop.append(genome)
-
+        noise = eps * (np.random.rand(*amps.shape) - 0.5) * 2  # in range [-eps, +eps]
+        individual = np.clip(amps + noise, 0.0, None)  # clip to avoid negative amplitudes
+        pop.append(individual)
     return np.array(pop)
 def make_gene_space(amps, eps=0.02):
-    amp_space = [
-        {'low': max(a - eps, 0.0), 'high': min(a + eps, 1.0)}
+    """
+    Generate a gene_space list where each gene has its own [low, high] range around WGS value.
+
+    Args:
+        amps: np.ndarray of shape (25,) – WGS amplitudes
+        eps: float – half-width of the range
+
+    Returns:
+        List of dictionaries – PyGAD-compatible gene_space
+    """
+    return [
+    {'low': max(a - eps, 0.0), 'high': min(a + eps, 1.0)}
         for a in amps
     ]
-    phase_space = [
-        {'low': -np.pi, 'high': np.pi}
-        for _ in range(len(amps))
-    ]
-    return amp_space + phase_space
+# Initial amplitudes from WGS
+# Amplitude bounds (based on WGS spread)
+amp_min = np.min(amps)
+amp_max = np.max(amps)
+margin = 0.05  # 5% extra margin
 
-for rep in tqdm(range(iter), desc="Iterations", unit="it"):
-    #initial_population = init_population_around(phase, pop_size=5, noise_scale=0.5)
-   # phase_flat = phase.flatten()
-    #initial_pop = init_population_local(amps, pop_size=10)
-    eps = 0.0025
-    if rep == 0:
-        initial_pop = init_population_local(amps, phases, pop_size=20, eps=eps)
-    else:
-        amps = best_solution[:25]
-        phases = best_solution[25:]
-        initial_pop = init_population_local(amps, phases, pop_size=20, eps=eps)
+lower_amp = max(0.0, amp_min - margin)
+upper_amp = amp_max + margin
 
-    gene_space = make_gene_space(amps, eps=eps)
+# Phase bounds
+lower_phase = -np.pi
+upper_phase = np.pi
 
-    ga_instance = pygad.GA(
-    num_generations=2,
-    num_parents_mating=3,
-    sol_per_pop=5,
-    num_genes=50,      # <-- not 25 anymore
-    initial_population=initial_pop,
-    fitness_func=fitness_func,
-    gene_space=gene_space,
-    mutation_type="random",
-    mutation_percent_genes=5,
-    keep_elitism=1,
-    parent_selection_type="tournament"
+# Combine bounds for 50 dimensions
+lower_bound = np.concatenate([np.full(25, lower_amp), np.full(25, lower_phase)])
+upper_bound = np.concatenate([np.full(25, upper_amp), np.full(25, upper_phase)])
+
+sigma0 = 0.01     # Step-size for search (~1% perturbations)
+x0 = np.concatenate([amps.copy(), phases.copy()])  # length = 50
+
+es = cma.CMAEvolutionStrategy(
+    x0,
+
+    sigma0=0.01,
+    options={
+        'popsize': 20,
+        'bounds': [lower_bound, upper_bound],
+    }
 )
 
-    ga_instance.run()
+for _ in range(10):  # number of CMA iterations
+    solutions = es.ask()
+    fitnesses = []
+    
+    for solution in solutions:
+        phase = genome_to_phase_amplitudes(solution, peak_coords, fft_phase)
+        pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1) + blazed_grating + phase_correction    
+        slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image)
+        pause(0.02)
 
-    best_solution, best_solution_fitness, _ = ga_instance.best_solution()
-    best_phase = genome_to_phase_amplitudes(best_solution, peak_coords, fft_phase)  # ⬅️ INSERT THIS INSTEAD
+        std_int = basler() / 255.0
+        coords = peak_local_max(std_int, num_peaks=25, min_distance=4)
 
-    best_solution_fitness, best_phase.shape
-    # pattern_to_slm = np.flip(np.round((best_phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1) + blazed_grating + phase_correction # this part is the phase pattern to send to the slm
-    # #else:
-    # #    pattern_to_slm = phase_2pi
+        image_shape = std_int.shape
+        ccd_mask = np.zeros(image_shape, dtype=std_int.dtype)
+        for y, x in coords:
+            ccd_mask[y, x] = std_int[y, x]
+        std_int = tweez_fourier_scaled_std(ccd_mask)
+        coordinates_ccd = peak_local_max(std_int, min_distance=min_distance, num_peaks=num_peaks)
+        row_ind, col_ind = match_detected_to_target(coordinates_ccd, peak_coords)
+        matched_coords = coordinates_ccd[row_ind]
+        intensities = std_int[matched_coords[:, 0], matched_coords[:, 1]]
 
-    # slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image);
-    # pause(0.02) #wait 100 ms for lcs to settle
+        mean_I = np.mean(intensities)
+        rel_std = np.std(intensities) / mean_I
+        print(rel_std)
+        fitnesses.append(rel_std)
+    es.tell(solutions, fitnesses)
+    es.disp()
+best_amps_full = es.best.get()
+best_amps = best_amps_full[0]
+best_fitness = best_amps_full[1]
 
+print(f"✅ Best relative std achieved: {best_fitness:.6f}")
+print("✅ Best amplitudes:")
+print(best_amps)
 
-    # Convert back to phase in [-π, π] range for the FFT
-    #################### This part goes back to phases being from -pi to pi #################################
-    #phase= (phase_slm / 255) * 2 * np.pi - np.pi # i see a problem with thiiiisssss dsjölkdsajlksjklvndslnvkdsanlkndsnfsd
-    # Apply FFT and update phase
-    u = join_phase_ampl(best_phase, PS_shape)
-    u = sfft.fft2(u)
-    u = sfft.fftshift(u)
-    # Plots to show phase and 
-    amps = best_solution.copy()
-    pattern_to_slm = np.flip(np.round((best_phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1) + blazed_grating + phase_correction    
-    slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image);
-    pause(0.1)
-
-    std_int = basler() / 255.0
-    coordinates = peak_local_max(std_int, min_distance=min_distance, num_peaks=num_peaks)
-    final_rel_std = intensity_std(std_int, coordinates)
-
-    print(f"✅ Final best_phase rel_std (re-evaluated): {final_rel_std:.6f}")
-
-    # # Now best_phase can be sent to the SLM or plotted
-    # std_int = basler()
-    # std_int = std_int/255 # if not try std_int / 255!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    #     # ******
-
-
-    error_value = intensity_std(std_int, coordinates)
-    errors.append(error_value)
-    # ******
-
-        # Update the plot dynamically
-    error_line.set_xdata(np.arange(len(errors)))
-    error_line.set_ydata(errors)
-    ax.set_xlim(0, len(errors) + 1)  # Extend x-axis as needed
-    plt.draw()
-    plt.pause(0.01)  # Small pause to update the plot
-    print(errors[-1])
-
-    phase = best_phase
-        # Plots to show phase and 
-    im2.set_data(phase)
-    im3.set_data(std_int)
-    plt.tight_layout()
-    plt.pause(0.01)
-
-    print(f"Best GA fitness (neg rel. std): {best_solution_fitness:.4e}")
-    print(f"Best GA loss (rel. std): {-best_solution_fitness:.4f}")
-    loss_history.append(-best_solution_fitness)
-
-        # ******
+np.save("best_amplitudes_cma.npy", best_amps)
 
 plt.figure(figsize=(8, 5))
 plt.plot(loss_history, marker='o')
@@ -1179,18 +1164,18 @@ plt.pause(20)
 np.save(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t1.npy", std_int)
 
 
-plt.figure(figsize=(10, 6))
-plt.plot(total_error_history, label='Total Absolute ΔI')
-plt.plot(mean_error_history, label='Mean Absolute ΔI')
-plt.plot(max_error_history, label='Max ΔI')
-plt.xlabel('Iteration')
-plt.ylabel('Intensity Error')
-plt.title('Convergence of Intensity Correction')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-plt.pause(30)
+# plt.figure(figsize=(10, 6))
+# plt.plot(total_error_history, label='Total Absolute ΔI')
+# plt.plot(mean_error_history, label='Mean Absolute ΔI')
+# plt.plot(max_error_history, label='Max ΔI')
+# plt.xlabel('Iteration')
+# plt.ylabel('Intensity Error')
+# plt.title('Convergence of Intensity Correction')
+# plt.legend()
+# plt.grid(True)
+# plt.tight_layout()
+# plt.show()
+# plt.pause(30)
 # plt.figure()
 # plt.plot(np.arange(n_rep), errors, "-o")
 # plt.yscale('log')  # Set y-axis to log scale
