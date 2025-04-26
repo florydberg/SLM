@@ -120,7 +120,7 @@ def match_detected_to_target(detected, target):
     #col_ind → indices from the target array
     return row_ind, col_ind  # Detected index i maps to target index col_ind[i]
 
-def weights(w, target, w_prev, std_int, coordinates_ccd_first, min_distance, num_peaks): 
+def weights(w, target, w_prev, std_int, coordinates_ccd_first, min_distance, num_peaks, phase): 
     # Detect peaks in the CCD intensity image
 
     
@@ -227,11 +227,11 @@ def weights(w, target, w_prev, std_int, coordinates_ccd_first, min_distance, num
 
     # Compute new weights
     updated_weights = np.sqrt(ideal_values / intensities) * previous_weights
-
+    phase_mask = np.zeros(image_shape, dtype=std_int.dtype)  # same type as std_int
+    phase_mask[tgt_y, tgt_x] = phase[tgt_y, tgt_x]
     # Assign updated weights
     w[tgt_y, tgt_x] = updated_weights
-
-    return w
+    return w, phase_mask
 
 
 
@@ -363,7 +363,7 @@ target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\notebooks\Tweezer_step_images\tw
 target_im_ideal = norm(target_im_ideal)
 
 # Number of iterations
-n_rep = 20
+n_rep = 40
 #target_im = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im_ideal = np.load(r"C:\Users\Yb\SLM\SLM\data\target_images\square_1920x1200.npy")
 #target_im = np.load(r"C:\Program Files\Meadowlark Optics\Blink 1920 HDMI\SDK\adjusted_5x5_grid_100pixels.npy")
@@ -628,29 +628,14 @@ def apply_tweezer_intensity_correction(u, std_int0, std_int, coords_0, coords_1,
 
     return u
 phase_evolution = []
-fixphase_start_rep = 12  # when to switch to FixPhaseGS
+phase_fixed = None  # will be filled later# when to switch to FixPhaseGS
 for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
-
-    # phase_2pi = np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8) #convert phase in [0, 2pi) range and then convert to 8-bit
-    # phase_2pi = np.round((phase) * 255 / (2 * np.pi)).astype(np.uint8) # convert to 8-bit
-
-    #if rep==0:
 
     pattern_to_slm = np.flip(np.round((phase + np.pi) * 255 / (2 * np.pi)).astype(np.uint8), axis=1) + blazed_grating + phase_correction # this part is the phase pattern to send to the slm
     #else:
-    #    pattern_to_slm = phase_2pi
 
     slm_lib.Write_image(pattern_to_slm.flatten().ctypes.data_as(POINTER(c_ubyte)), is_eight_bit_image);
     pause(0.02) #wait 100 ms for lcs to settle
-
-    
-    # Convert back to phase in [-π, π] range for the FFT
-    #################### This part goes back to phases being from -pi to pi #################################
-    #phase= (phase_slm / 255) * 2 * np.pi - np.pi # i see a problem with thiiiisssss dsjölkdsajlksjklvndslnvkdsanlkndsnfsd
-    # Apply FFT and update phase
-    u = join_phase_ampl(phase, PS_shape)
-    u = sfft.fft2(u)
-    u = sfft.fftshift(u)
 
 
     # Normalized intensity coming from actual images from the Basler
@@ -667,167 +652,60 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     im3.set_data(std_int)
     plt.tight_layout()
     plt.pause(0.01)
-
+    # Convert back to phase in [-π, π] range for the FFT
+    #################### This part goes back to phases being from -pi to pi #################################
+    #phase= (phase_slm / 255) * 2 * np.pi - np.pi # i see a problem with thiiiisssss dsjölkdsajlksjklvndslnvkdsanlkndsnfsd
+    # Apply FFT and update phase
+    if rep < 1:
+        u = join_phase_ampl(phase, PS_shape)  # Initial incident laser amplitude
+      # Afterward, apply optimized weights
+    u = sfft.fft2(u)
+    u = sfft.fftshift(u)
     phase=np.angle(u) # This is from -pi to pi
 
 
-    # if rep > 3:
-    #     cost_matrix = np.linalg.norm(coords_0[:, None] - coordinates[None, :], axis=2)
-    #     row_ind, col_ind = linear_sum_assignment(cost_matrix)
-    #     matched_coords_0 = coords_0[row_ind]
-    #     matched_coords_1 = coordinates[col_ind]
 
-    #     # Get intensities at matched positions
-    #     I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
-    #     I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
-    #     delta_I = I_1 - I_0  # or (I_1 - I_0)/I_0 for relative change
-    #     # Plotting
-    #     plt.figure(figsize=(10, 8))
-    #     plt.imshow(std_int, cmap='gray')
-    #     plt.title("Intensity Change Overlay (std_int1 background)")
-
-    #     for i in range(len(matched_coords_1)):
-    #         y, x = matched_coords_1[i]
-    #         di = delta_I[i]
-    #         plt.scatter(x, y, c='red' if di > 0 else 'blue', s=100, marker='o')
-    #         plt.text(x+2, y, f"{di:.2f}", color='yellow', fontsize=9)
-
-    #     plt.colorbar(label='std_int1 Intensity')
-    #     plt.ylabel("Y pixels")
-    #     plt.grid(False)
-    #     plt.tight_layout()
-    #     plt.show()
-    # #     plt.pause(1)
-    # if rep > 5:
-    #     # Match current tweezers to initial ones
-    #     cost_matrix = np.linalg.norm(coords_0[:, None] - coordinates[None, :], axis=2)
-    #     row_ind, col_ind = linear_sum_assignment(cost_matrix)
-    #     matched_coords_0 = coords_0[row_ind]
-    #     matched_coords_1 = coordinates[col_ind]
-
-    #     I_0 = std_int0[matched_coords_0[:, 0], matched_coords_0[:, 1]]
-    #     I_1 = std_int[matched_coords_1[:, 0], matched_coords_1[:, 1]]
-
-    #     delta_I = I_1 - I_0
-    #     rel_error = delta_I / I_0  # Optional
-
-    #     # Log statistics
-    #     total_abs_error = np.sum(np.abs(delta_I))
-    #     max_error = np.max(np.abs(delta_I))
-    #     mean_error = np.mean(np.abs(delta_I))
-
-    #     print(f"Total ΔI: {total_abs_error:.4f}, Max: {max_error:.4f}, Mean: {mean_error:.4f}")
-
-    #     # Save for later plotting
-    #     if rep == 6:
-    #         total_error_history = []
-    #         max_error_history = []
-    #         mean_error_history = []
-
-    #     total_error_history.append(total_abs_error)
-    #     max_error_history.append(max_error)
-    #     mean_error_history.append(mean_error)
-
- 
+    freeze_start_rep = 10
     i = 3
-    if rep<i:
+
+    if rep < i:
         u = join_phase_ampl(phase, init_ampl)
 
 
-    # else:
-    #     ###### Weights ########
-    #     w=weights(target_im,w_prev,std_int)
-    #     w=norm(w)
-    #     w_prev=w
-    #     u=join_phase_ampl(phase,w)
-    #     ###### Weights ########
+    elif (rep > i) and (rep < freeze_start_rep):
+        # Update weights normally
+        w, masked_phase = weights(w, target_im, w_prev, std_int, coordinates, min_distance, num_peaks, phase)
+        w = norm(w)
+        coordinates_last = peak_local_max(w, min_distance=min_distance, num_peaks=num_peaks)
 
-    # if rep>i :
-    #     ###### Weights ########
+        if rep == i+1:
+            coords_reference = coordinates_last.copy()  # Save the trap positions at beginning
+        w_prev = w.copy()
 
-    #     w=weights(w,target_im,w_prev,std_int, coordinates, min_distance, num_peaks)
-    #     #w, coordinates = weigths_box(w,target_im,w_prev,std_int)
-    #     # random_weight_noise = 0.008 * np.random.randn(*w.shape)
-    #     # w += random_weight_noise
-    #     # w = np.clip(w, 0, None)  # Ensure weights stay positive
-    #     w=norm(w)
-    #     coordinates_last = peak_local_max(
-    #      w,
-    #      min_distance=min_distance,
-    #      num_peaks=num_peaks
-    #     )
-    #     w_prev=w.copy()
-    #     #u=join_phase_ampl(phase,w*target_im)
+        # Track phase evolution
+        row_ind, col_ind = match_detected_to_target(coordinates_last, coords_reference)
+        current_phases = phase[coordinates_last[row_ind, 0], coordinates_last[row_ind, 1]]
+        current_phases_ordered = current_phases[col_ind]
+        phase_evolution.append(current_phases_ordered)
 
-    #     u=join_phase_ampl(phase,w)
+        u = join_phase_ampl(phase, w)
 
-    # if rep>last rep:
-    #     ###### Weights ########
+        if rep == freeze_start_rep - 1:
+            phase_fixed = phase.copy()
 
-    #     w=weights(w,target_im,w_prev,std_int, coordinates, min_distance, num_peaks)
-
-    #     #w, coordinates = weigths_box(w,target_im,w_prev,std_int)
-    #     w=norm(w)
-    #     w_prev=w.copy()
-    #     #u=join_phase_ampl(phase,w*target_im)
-    #     u=join_phase_ampl(phase,w)
-
-        # u = sfft.ifftshift(u)
-        # u = sfft.ifft2(u)
-        # phase = np.angle(u)
-        # u = sfft.fft2(u)
-        # u = sfft.fftshift(u)
-
-    if rep > i:
-        w=weights(w,target_im,w_prev,std_int, coordinates, min_distance, num_peaks)
-        #w, coordinates = weigths_box(w,target_im,w_prev,std_int)
-        # random_weight_noise = 0.008 * np.random.randn(*w.shape)
-        # w += random_weight_noise
-        # w = np.clip(w, 0, None)  # Ensure weights stay positive
-        w=norm(w)
-        coordinates_last = peak_local_max(
-        w,
-        min_distance=min_distance,
-        num_peaks=num_peaks
-        )
-        w_prev=w.copy()
-        #u=join_phase_ampl(phase,w*target_im)
- 
-        # Start with a zero phase array
-        masked_phase = np.zeros_like(phase)
-
-        # Unpack coordinates
-        ys, xs = coordinates_last[:, 0], coordinates_last[:, 1]
-        if rep == fixphase_start_rep:
-            # Save fixed trap phases exactly at switch point
-            phase_fixed = phase[ys, xs]
-
-        if rep < fixphase_start_rep:
-            # Before FixPhaseGS: use live phases
-            masked_phase[ys, xs] = phase[ys, xs]
-        else:
-            # After FixPhaseGS: force fixed phases
-            masked_phase[ys, xs] = phase_fixed
-
-        #asked_phase[ys, xs] = np.pi / 2
-        current_phases = masked_phase[ys, xs]  # These are the phase values at trap positions
-        phase_evolution.append(current_phases)
-
-        # plt.figure(figsize=(8, 6))
-        # plt.imshow(masked_phase)  # Flip origin if needed
-        # plt.title("Target Image After Fourier Scaling")
-        # plt.xlabel("X pixels")
-        # plt.ylabel("Y pixels")
-        # plt.colorbar(label="Intensity")
-        # plt.tight_layout()
-        # plt.show()
-        # pause(100)
-        if i == 20:
-            # Save trap phases at first FixPhaseGS iteration
-            phase_fixed = phase[ys, xs]  # Save phases at trap positions
+    elif rep >= freeze_start_rep:
+        # Update weights (you can still update weights, that's okay)
+        w, masked_phase = weights(w, target_im, w_prev, std_int, coordinates, min_distance, num_peaks, phase)
+        w = norm(w)
+        w_prev = w.copy()
 
 
-        u=join_phase_ampl(masked_phase,w) 
+        current_phases_ordered = phase_fixed[coords_reference[:, 0], coords_reference[:, 1]]
+        phase_evolution.append(current_phases_ordered)
+
+        u = join_phase_ampl(phase_fixed, w)
+
+
     error_value = intensity_std(std_int, coordinates)
     errors.append(error_value)
     # ******
@@ -845,22 +723,9 @@ for rep in tqdm(range(n_rep), desc="Iterations", unit="it"):
     print(errors[-1])
 
 
-
-        # plt.figure(figsize=(8, 6))
-        # plt.imshow(w, cmap='hot')
-        # plt.colorbar(label="Weight Values")
-        # plt.title(f"Weights After {rep} Iterations")
-        # plt.show()
-        #pause(2)
-
-
-
     u = sfft.ifftshift(u)
     u = sfft.ifft2(u)
     
-
-
-    # The phase that we need to imprint by the SLM is:
     phase = np.angle(u) # This is still -pi to pi!!
 
 
@@ -885,10 +750,45 @@ plt.tight_layout()
 plt.show()
 
 ############# Plotting ##################
+# Assume you already have:
+# phase_evolution : (n_iterations, n_traps)
+# phase_evolution_unwrapped : (n_iterations, n_traps)
+
+# First choose: deviation relative to the initial value
+initial_phase = phase_evolution_unwrapped[0, :]  # shape: (n_traps,)
+
+# Calculate deviation for each tweezer over time
+deviation = phase_evolution_unwrapped - initial_phase[None, :]  # Broadcast
+
+# Optional: wrap into (-pi, pi) range if needed
+# deviation = (deviation + np.pi) % (2 * np.pi) - np.pi
+
+# Now plot deviation for each trap
+plt.figure(figsize=(10, 6))
+for trap_idx in range(deviation.shape[1]):
+    plt.plot(deviation[:, trap_idx], label=f"Trap {trap_idx}")
+
+plt.xlabel("Iteration")
+plt.ylabel("Phase Deviation (radians)")
+plt.title("Phase Deviation at Trap Positions Over Iterations")
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', ncol=2)
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+std_per_trap = np.std(deviation, axis=0)
+
+plt.figure(figsize=(8, 5))
+plt.bar(np.arange(len(std_per_trap)), std_per_trap)
+plt.xlabel("Trap index")
+plt.ylabel("Std Deviation (radians)")
+plt.title("Standard Deviation of Trap Phases Over Time")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
 
 
-plt.pause(20)
+plt.pause(40)
 np.save(r"C:\Users\Yb\SLM\SLM\data\target_images\std_int_t1.npy", std_int)
 
 
